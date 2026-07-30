@@ -244,6 +244,60 @@ headings, check what was in between.
 - **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
   and uplinks, separate from the client topology. `--no-clients` approximates it.
 
+- **Decide what "making a release" actually means here.** Today it is: edit
+  `__version__`, write the CHANGELOG entry, tag, push, mirror. That is a version
+  bump, not a release, and the gap is worth closing deliberately rather than by
+  accident. Questions to answer, roughly in order of how much they change:
+
+  - **Is installation meant to be `pip install unifi-map`?** Right now the only
+    documented install is a git clone plus `pip install -e .`. Publishing to
+    PyPI is the single biggest decision, because it implies owning a name,
+    keeping metadata honest, and never breaking a published artifact. If the
+    answer is no, say so in the README so people stop wondering.
+  - **Should the tag build anything?** `[project.scripts]` already declares a
+    `unifi-map` entry point and the backend is plain setuptools, so `sdist` and
+    `wheel` need no new machinery. A tag-triggered workflow could attach both to
+    a GitHub Release. CI currently only runs on push to `main`, so it would need
+    a `tags:` trigger.
+  - **Are release notes duplicated?** A GitHub Release body and the CHANGELOG
+    entry say the same thing. Generate one from the other rather than writing
+    both by hand and letting them drift.
+  - **What is checked before a tag?** At minimum `make check`, that
+    `__version__` matches the CHANGELOG's newest heading, and that the heading
+    is not still `Unreleased`. A version bumped without a CHANGELOG entry is the
+    likely mistake and is cheap to catch.
+  - **Reproducibility.** Graphviz is a system dependency, so the wheel is not
+    self-contained. Decide whether that is documented (it is, in Install) or
+    whether a container image is wanted.
+
+  Write the outcome down as a short `RELEASING.md` rather than leaving it in a
+  maintainer's head; that is the actual deliverable.
+
+- **A man page, generated from the source rather than written twice.**
+  `build_parser()` in `cli.py` is already the single source of truth for every
+  flag and its help text, so the man page should come from it. Hand-writing one
+  guarantees it goes stale, which is worse than not having one.
+
+  Likely approach: `argparse-manpage`, which imports a parser and emits roff,
+  and can be wired to `build_parser` directly. `help2man` is the lower-effort
+  alternative but shells out to `--help` and produces a flatter result.
+
+  Two things matter more than the tool choice:
+
+  - **Generate it in `make` and fail if it is stale.** The pattern to copy is
+    the sibling `cyberpower-prometheus-exporter` repo, whose `make check`
+    regenerates its docs then runs `git diff --exit-code`. Without that the
+    generated file drifts exactly like a hand-written one would.
+  - **Decide whether the page is committed.** Committing it makes it visible and
+    reviewable in diffs, which is the reason to prefer it; generating at build
+    time keeps the tree clean but means nobody notices when help text becomes
+    unreadable as a man page.
+
+  Note that argparse help strings are currently written to read well in a
+  terminal. Some will want rephrasing once they appear as a formatted page, and
+  the long explanations in the README (support files, the glyph font, the three
+  artwork routes) belong in a `DESCRIPTION` section rather than as flag help.
+
 Done since this list was last accurate: overrides are applied rather than only
 parsed, CI exists, obfuscation exists, `SECURITY.md` and `CONTRIBUTING.md` and
 the issue and PR templates were written, clients behind non-UniFi devices are
