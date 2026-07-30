@@ -248,13 +248,21 @@ read both ways, the infrastructure and the wireless client list came out
 identical, and VLAN names, subnets, switch port numbers, SSIDs, client addresses,
 the ISP name and Protect camera artwork all survive.
 
-**Client artwork is partial.** A support file does not store the fingerprint id
-that client artwork is matched on, but it can often be recovered: when you have
-not renamed a client yourself, the console names it after the product it
-identified, and that name is enough to look the product back up. Clients you
-have named, and clients the console never identified, draw without product
-artwork. UniFi hardware appearing as a client is unaffected and still draws
-properly.
+**Client artwork is much reduced.** This is the one place a support file is
+clearly worse, and it is worth being concrete: on the network this was developed
+against, an API key resolved product artwork for **42 of 48** clients, and a
+support file managed **13 of 47**. Roughly a third.
+
+A support file does not store the fingerprint id that client artwork is matched
+on. Some of it can be reconstructed, because a client the console named *itself*
+is named after the product it identified, and that name can be looked back up.
+But the console only does that for a client that sent no DHCP hostname and that
+you never renamed, which on a real network is a minority. Everything else draws
+without product artwork.
+
+So expect a support-file map to have correct names, addresses and connections
+throughout, and product icons on a minority of clients. UniFi hardware appearing
+as a client is unaffected and still draws properly.
 
 The product lookup needs Ubiquiti's published fingerprint database, which is why
 it is behind `--fetch-fingerprints` as described above. Clients with no

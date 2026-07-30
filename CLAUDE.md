@@ -369,13 +369,18 @@ listing it as outstanding again:
 curl -s https://api.github.com/repos/gitkodak/unifi-map | jq -r .description
 ```
 
-## `--support-file` is a second input, and loses almost nothing
+## `--support-file` is a second input, equivalent except for client artwork
 
 `support.py` reads a console support file into the same `Snapshot` the API
 produces, so nothing downstream knows the difference. Verified against a live
 fetch of the same network: identical infrastructure (7 AP, 1 gateway, 3 switch),
 identical wireless client count, one extra wired client live because the archive
-was an hour older. Only client *product* artwork is lost.
+was an hour older.
+
+What is *not* equivalent is client product artwork: 13 of 47 against 42 of 48 on
+the same network, roughly a third. Do not describe support-file mode as keeping
+client artwork; it keeps a minority of it. See the name-recovery section below
+for why, and the full field-by-field comparison at the end of this section.
 
 The seven members read, and nothing else:
 
@@ -487,6 +492,41 @@ Constraints worth keeping:
   edges; taking it would silently drop every port label.
 - `devices.json` is a list of one object per site, plus a `super` pseudo-site
   that is always empty. Multi-site archives pick the largest and say so.
+
+### Measured difference against a live fetch
+
+Both built with `--show-offline no`, same network, archive about an hour older
+than the live snapshot. Anything marked drift is that hour, not the method.
+
+| | live | support | |
+| --- | --- | --- | --- |
+| infrastructure nodes, IPs, sysids | 12, 12, 11 | 12, 12, 11 | identical |
+| client addresses | 43 | 43 | identical |
+| internet ASN, port labels, guest flags | same | same | identical |
+| **client fingerprints** | 42 | 13 | **structural, not fixable** |
+| client `detail` text | 43 | 35 | follows from fingerprints |
+| client `oui` | 35 | 0 | structural, **fixable** |
+| networks | 8 | 5 | live adds 2 WAN + 1 VPN; nothing draws them |
+| client network / VLAN | 47 / 34 | 44 / 31 | 2 real, **fixable** |
+| nodes, edges, clients | 60, 59, 48 | 59, 58, 47 | drift |
+
+Two of those are worth closing and are not done yet:
+
+- **`oui` is absent**, and it gates `_hardware_asset()`: live gives UniFi
+  hardware appearing as a client its catalogue artwork because the OUI string
+  says Ubiquiti. Use the topology vertex's **`unifiDevice`** boolean instead.
+  Checked: it was true for exactly the one client whose live OUI says Ubiquiti,
+  so it is a clean substitute and arguably better, being the controller's own
+  judgement rather than a vendor-string match.
+- **Two clients lose network and VLAN.** Both have `network_id: null` on live as
+  well; live recovers them from `network`/`vlan` fields on `stat/sta` that the
+  topology graph does not carry. Match the client's address against `ip_subnet`
+  from `network_table`, which is already parsed.
+
+Also note that live `fetch` caches the icon font automatically while support
+mode requires a flag, so out of the box live shows generic glyphs for
+unfingerprinted clients and support mode shows shapes. That is the opt-in
+privacy design working, not a data gap.
 
 ## Data hygiene
 

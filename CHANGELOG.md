@@ -67,13 +67,15 @@ Refactors, docs and tests alone do not need a release at all.
   this font, so there is no route to it that avoids a controller, and it is not
   shipped here.
 
-  Client artwork is available but opt-in, via `--fetch-fingerprints`. A support
-  file stores no fingerprint id, but a client you have not renamed carries the
-  console's own name for it, which is the product it identified, and that is
-  enough to look the product back up against Ubiquiti's published fingerprint
-  database. That database is about 1 MB, is downloaded only when the flag is
-  given, and is then cached. Clients you have named yourself, and every client
-  when the flag is absent, draw without product artwork.
+  Some client artwork is recoverable, opt-in via `--fetch-fingerprints`, but
+  expect substantially less of it than a live fetch gives: 13 of 47 clients
+  against 42 of 48 on the same network. A support file stores no fingerprint id.
+  What can be reconstructed is the subset the console named *itself*, after the
+  product it identified, since that name can be looked back up against
+  Ubiquiti's published fingerprint database. The console only names a client
+  that way when it sent no DHCP hostname and was never renamed, which is a
+  minority. The database is about 1 MB, downloaded only when the flag is given,
+  then cached.
 
 - Manual overrides are now applied, not just parsed. `--overrides` (or an
   `overrides.toml` in the working directory) can add links the controller cannot
