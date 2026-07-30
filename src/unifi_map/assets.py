@@ -41,6 +41,69 @@ CATALOG_URL = "https://static.ui.com/fingerprint/ui/public.json"
 # Filenames for the controller-sourced icon font, written by `fetch`.
 FONT_FILE = "ubnt-icon.ttf"
 FONT_MAP_FILE = "ubnt-icon.json"
+
+# The generic client glyphs. UniFi picks one of exactly these four by CSS class
+# for any client it has no product artwork for, so they are the whole of the
+# fallback. They live in a custom icon font that only a controller serves; there
+# is no published copy, which is why obtaining it is a deliberate step.
+CLIENT_GLYPHS = ("user-wired", "user-wireless", "guest-wired", "guest-wireless")
+_GLYPH_RULE = r"ubnt-icon--{name}[^{{]*\{{[^}}]*content:\s*\"\\([0-9a-fA-F]+)\""
+
+
+def parse_glyph_codepoints(css: str) -> dict[str, int]:
+    """Codepoints for the client glyphs, read from the icon font's stylesheet.
+
+    Shared by the controller fetch and by loading a copy from disk, so both
+    routes agree on what a glyph is.
+    """
+    codepoints: dict[str, int] = {}
+    for name in CLIENT_GLYPHS:
+        match = re.search(_GLYPH_RULE.format(name=name), css)
+        if match:
+            codepoints[name] = int(match.group(1), 16)
+        else:
+            log.warning("Glyph %s not found in the icon font stylesheet.", name)
+    return codepoints
+
+
+def read_icon_font_dir(path: Path) -> tuple[bytes, dict[str, int]]:
+    """Load an icon font copied off a controller by hand.
+
+    *path* is a directory holding the font's `style.css` and its `.ttf`, in any
+    arrangement: the controller's own `ubnt-icon` directory works as-is, and so
+    does a folder someone dropped both files into. This is the route that needs
+    neither credentials nor a network, for people who will not point this tool
+    at a console but can still copy two files off one.
+
+    Raises `AssetError` with a specific reason, because a silent fallback here
+    would look identical to the glyphs simply not working.
+    """
+    if not path.is_dir():
+        raise AssetError(f"{path} is not a directory.")
+
+    css_files = sorted(path.rglob("*.css"))
+    fonts = sorted(path.rglob("*.ttf"))
+    if not css_files:
+        raise AssetError(
+            f"No stylesheet under {path}. The glyph codepoints live in the "
+            "font's style.css, so that file is needed as well as the .ttf."
+        )
+    if not fonts:
+        raise AssetError(f"No .ttf font under {path}.")
+
+    codepoints: dict[str, int] = {}
+    for css in css_files:
+        codepoints = parse_glyph_codepoints(css.read_text(encoding="utf-8", errors="replace"))
+        if codepoints:
+            break
+    if not codepoints:
+        raise AssetError(
+            f"Found no client glyph codepoints in the stylesheets under {path}. "
+            'Expected rules like `.ubnt-icon--user-wired:before {content: "\\e8a1"}`.'
+        )
+    return fonts[0].read_bytes(), codepoints
+
+
 IMAGE_URL = "https://static.ui.com/fingerprint/ui/images/{id}/{variant}/{hash}.png"
 
 # Client artwork, keyed by the fingerprint dev_id that stat/sta already reports.

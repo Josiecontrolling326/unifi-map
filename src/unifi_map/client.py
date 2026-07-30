@@ -21,6 +21,7 @@ from typing import Any
 import requests
 import urllib3
 
+from .assets import parse_glyph_codepoints
 from .config import ExporterConfig
 
 log = logging.getLogger(__name__)
@@ -50,13 +51,7 @@ EXTRA_ENDPOINTS: dict[str, str] = {
     "protect_cameras": "proxy/protect/integration/v1/cameras",
 }
 
-# The web app's icon font, which is where UniFi's client glyphs actually live.
-# `getIconClassName` in the bundle resolves a client to one of exactly four
-# classes, so these are the only glyphs the UI ever shows for a client.
-CLIENT_GLYPHS = ("user-wired", "user-wireless", "guest-wired", "guest-wireless")
-
 _ASSET_HASH = re.compile(rb"angular/([A-Za-z0-9]+)/")
-_GLYPH_RULE = r"ubnt-icon--{name}[^{{]*\{{[^}}]*content:\s*\"\\([0-9a-fA-F]+)\""
 
 
 class UniFiError(RuntimeError):
@@ -179,14 +174,7 @@ class UniFiClient:
         base = f"manage/angular/{build}/fonts/ubnt-icon"
         css = self._fetch_raw(f"{base}/style.css").decode("utf-8", errors="replace")
 
-        codepoints: dict[str, int] = {}
-        for name in CLIENT_GLYPHS:
-            match = re.search(_GLYPH_RULE.format(name=name), css)
-            if match:
-                codepoints[name] = int(match.group(1), 16)
-            else:
-                log.warning("Glyph %s not found in the icon font stylesheet.", name)
-
+        codepoints = parse_glyph_codepoints(css)
         if not codepoints:
             raise UniFiError("Found no client glyph codepoints in the icon font stylesheet.")
 

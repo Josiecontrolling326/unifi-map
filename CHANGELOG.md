@@ -10,7 +10,26 @@ interface is right, that becomes 1.0 and breaking changes need a major bump.
 The version lives in `src/unifi_map/__init__.py` and `pyproject.toml` reads it
 from there, so there is only ever one number to change.
 
-## Unreleased
+### When to bump
+
+The version describes what a *user* would notice, not how much work happened.
+Bump when releasing, not per commit: several commits usually make one version.
+
+- **Patch** (0.2.0 to 0.2.1) for fixes and internal changes. Someone upgrading
+  gets the same commands, the same flags and better behaviour.
+- **Minor** (0.2.0 to 0.3.0) for anything new: a flag, an output format, a
+  capability. Also, while pre-1.0, for changes that would otherwise be breaking,
+  such as a renamed flag or a changed default.
+- **Major** (0.x to 1.0, then 1.x to 2.0) once the interface is declared stable,
+  for anything that breaks an existing invocation.
+
+Below 1.0 the promise is deliberately weak: the leading zero says the CLI is
+still settling. That is why a changed default is a minor bump here and would be
+a major one later.
+
+Refactors, docs and tests alone do not need a release at all.
+
+## 0.2.0 - 2026-07-30
 
 ### Added
 
@@ -25,6 +44,13 @@ from there, so there is only ever one number to change.
   survive.
 
   Reading a support file makes no outbound request at all.
+
+- `--icon-font DIR` loads the generic client glyph font from a copy you made
+  yourself, needing neither credentials nor a network. `--fetch-icon-font` gets
+  it from a controller instead, which does need an API key and says so. Without
+  either, unidentified clients draw as plain shapes. Ubiquiti publish no copy of
+  this font, so there is no route to it that avoids a controller, and it is not
+  shipped here.
 
   Client artwork is available but opt-in, via `--fetch-fingerprints`. A support
   file stores no fingerprint id, but a client you have not renamed carries the

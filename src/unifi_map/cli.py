@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .assets import AssetStore, IconAsset
+from .assets import AssetError, AssetStore, IconAsset, read_icon_font_dir
 from .client import Snapshot, UniFiClient, UniFiError
 from .config import ConfigError, load_config
 from .layout import GraphvizError, GraphvizMissing, compute_layout, run_dot, stagger
@@ -121,12 +121,51 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
             "afterwards). Nothing else here touches the network."
         )
 
+    _obtain_icon_font(args, store)
+
     snapshot = load_support_file(args.support_file, args.support_site, fingerprint_db)
     snapshot.write(args.cache_dir)
     log.info("Wrote snapshot to %s/", args.cache_dir)
     for name, payload in sorted(snapshot.payloads.items()):
         log.info("  %-14s %s", name, _describe(payload))
     return 0
+
+
+def _obtain_icon_font(args: argparse.Namespace, store: AssetStore) -> None:
+    """Get the generic client glyph font, if the user asked for it and how.
+
+    Three routes, deliberately distinct because their costs differ:
+
+    * `--icon-font DIR` reads a copy from disk. No credentials, no network.
+    * `--fetch-icon-font` asks a controller, which needs an API key. Ubiquiti
+      publish no copy of this font, so there is no third option that avoids
+      both.
+    * Neither: unfingerprinted clients draw as shapes, and nothing is contacted.
+    """
+    if args.icon_font:
+        font, codepoints = read_icon_font_dir(args.icon_font)
+        store.save_icon_font(font, codepoints)
+        log.info(
+            "Loaded the client glyph font from %s (%d glyphs).", args.icon_font, len(codepoints)
+        )
+        return
+
+    if not args.fetch_icon_font:
+        if not store.glyph_codepoints():
+            log.info(
+                "Clients with no product artwork will draw as shapes. The "
+                "generic glyph font exists only on a controller, so it needs "
+                "either --fetch-icon-font (an API key) or --icon-font DIR (a "
+                "copy you made yourself)."
+            )
+        return
+
+    # Explicitly requested, so the credential requirement is not a surprise.
+    config = load_config(args.env_file)
+    log.info("Fetching the client glyph font from %s (this uses your API key).", config.host)
+    font, codepoints = UniFiClient(config).fetch_icon_font()
+    store.save_icon_font(font, codepoints)
+    log.info("Cached the client glyph font (%d glyphs).", len(codepoints))
 
 
 def _describe(payload: object) -> str:
@@ -451,6 +490,22 @@ def build_parser() -> argparse.ArgumentParser:
         "what gives clients real product artwork when reading a support file. "
         "Off by default: reading a support file otherwise contacts nothing.",
     )
+    parser.add_argument(
+        "--fetch-icon-font",
+        action="store_true",
+        help="With --support-file, also fetch the generic client glyph font from "
+        "a controller. This one DOES need UNIFI_HOST and UNIFI_API_KEY, because "
+        "Ubiquiti publish no copy of that font. Off by default.",
+    )
+    parser.add_argument(
+        "--icon-font",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Load the client glyph font from a directory you copied off a "
+        "controller yourself (needs its style.css and .ttf). Needs no "
+        "credentials and no network. See the README.",
+    )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"unifi-map {__version__}")
@@ -584,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
     except GraphvizMissing as exc:
         log.error("%s", exc)
         return 3
-    except (UniFiError, GraphvizError, SupportFileError) as exc:
+    except (UniFiError, GraphvizError, SupportFileError, AssetError) as exc:
         log.error("%s", exc)
         return 1
 

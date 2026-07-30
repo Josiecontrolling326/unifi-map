@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from unifi_map.assets import AssetStore, IconAsset
+from unifi_map.assets import AssetError, AssetStore, IconAsset, read_icon_font_dir
 from unifi_map.svg_post import inline_svg_images
 
 CATALOG = {
@@ -336,3 +336,65 @@ class TestClientFingerprintDatabase:
 
         monkeypatch.setattr("unifi_map.assets.requests.get", explode)
         assert store.fingerprint_db(download=True) is None
+
+
+class TestIconFontFromDisk:
+    """Loading the client glyph font from a copy made by hand.
+
+    Ubiquiti publish no copy of this font, so the alternatives are an API key or
+    copying two files off a controller. This is the second, and it must need
+    neither credentials nor a network.
+    """
+
+    CSS = (
+        '@font-face{font-family:"ubnt";src:url("fonts/ubnt.ttf?6vxos8")}\n'
+        '.ubnt-icon--user-wired:before{content:"\\e8a1"}\n'
+        '.ubnt-icon--user-wireless:before{content:"\\e8a2"}\n'
+        '.ubnt-icon--guest-wired:before{content:"\\e8a3"}\n'
+        '.ubnt-icon--guest-wireless:before{content:"\\e8a4"}\n'
+    )
+
+    def _dir(self, tmp_path, css=None, font=b"fake-ttf", nested=True):
+        root = tmp_path / "ubnt-icon"
+        (root / "fonts").mkdir(parents=True)
+        if css is not None:
+            (root / "style.css").write_text(css, encoding="utf-8")
+        if font is not None:
+            target = (root / "fonts" / "ubnt.ttf") if nested else (root / "ubnt.ttf")
+            target.write_bytes(font)
+        return root
+
+    def test_the_controller_directory_layout_is_read_as_is(self, tmp_path):
+        font, codepoints = read_icon_font_dir(self._dir(tmp_path, self.CSS))
+        assert font == b"fake-ttf"
+        assert codepoints == {
+            "user-wired": 0xE8A1,
+            "user-wireless": 0xE8A2,
+            "guest-wired": 0xE8A3,
+            "guest-wireless": 0xE8A4,
+        }
+
+    def test_both_files_dropped_in_one_flat_folder_also_work(self, tmp_path):
+        # People will not necessarily preserve the controller's directory shape.
+        _, codepoints = read_icon_font_dir(self._dir(tmp_path, self.CSS, nested=False))
+        assert len(codepoints) == 4
+
+    def test_a_missing_stylesheet_says_why_it_is_needed(self, tmp_path):
+        with pytest.raises(AssetError, match="codepoints"):
+            read_icon_font_dir(self._dir(tmp_path, css=None))
+
+    def test_a_missing_font_is_reported(self, tmp_path):
+        with pytest.raises(AssetError, match=r"No \.ttf"):
+            read_icon_font_dir(self._dir(tmp_path, self.CSS, font=None))
+
+    def test_an_unrelated_stylesheet_does_not_pass_silently(self, tmp_path):
+        # Failing loudly matters: a silent fallback is indistinguishable from
+        # the glyphs simply not rendering.
+        with pytest.raises(AssetError, match="no client glyph codepoints"):
+            read_icon_font_dir(self._dir(tmp_path, "body{color:red}"))
+
+    def test_a_path_that_is_not_a_directory_is_refused(self, tmp_path):
+        loose = tmp_path / "ubnt.ttf"
+        loose.write_bytes(b"x")
+        with pytest.raises(AssetError, match="not a directory"):
+            read_icon_font_dir(loose)
