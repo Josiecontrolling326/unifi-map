@@ -30,6 +30,41 @@ aspect ratio sane, port numbers on the links, and a title block and legend. On a
 busy network this is usually the one worth handing to somebody else. Run
 `make demo` to reproduce both, then point it at your own controller.*
 
+## At a glance
+
+| | |
+| --- | --- |
+| **Input** | Your controller, with an API key. Or a [support file](#mapping-from-a-support-file), with no credentials and no network at all. |
+| **Output** | [SVG, PDF, PNG, editable `.drawio`, Graphviz `.dot`](#output). |
+| **Scope** | Every client, not just infrastructure. Optionally [one diagram per VLAN](#usage). |
+| **Artwork** | Real Ubiquiti product renders for hardware *and* clients, plus your ISP's logo. [Fetched at runtime, never vendored](#artwork-licensing-and-attribution). |
+| **Layouts** | [`unifi`](#how-close-is---layout-unifi) approximates the console view; `sane` is the readable one. Light and dark themes. |
+| **Sharing** | [`--obfuscate`](#sharing-a-map---obfuscate) replaces names, addresses, MACs, SSIDs, VLAN names and your ISP, keeping the shape of the network. |
+| **Corrections** | [Overrides](#manual-overrides) for links the controller cannot see, renames, hidden nodes and your own icons. |
+| **Access** | Read-only. `session.get` is the only HTTP verb in the source. |
+
+Quickest look, no credentials and no controller:
+
+```bash
+make demo
+```
+
+Then against your own network:
+
+```bash
+cp .env.example .env    # host + API key
+unifi-map all
+```
+
+Two things carry risk and are worth reading before you use them:
+
+- **An API key is broader than this tool needs.** UniFi has no read-only scope,
+  so the key inherits your account's permissions. What was tried, and what this
+  actually requests, is in [`UNIFI_API_KEY`](#unifi_api_key) and `SECURITY.md`.
+- **A support file is highly sensitive**, more so than most people expect. If
+  you plan to use or share one, read
+  [Mapping from a support file](#mapping-from-a-support-file) first.
+
 ## How this was built
 
 Essentially all of the code here was written by an AI assistant (Claude), working
