@@ -236,7 +236,11 @@ def render_dot(
         attrs = []
         if edge.label and style.show_port_labels:
             attrs.append(f'label="{_escape(edge.label)}"')
-        if edge.wireless:
+        if edge.asserted:
+            # Dotted means "you told me this", so it never reads as something
+            # the controller reported.
+            attrs.append("style=dotted")
+        elif edge.wireless:
             # The wired/wireless distinction must survive greyscale printing.
             attrs.append("style=dashed")
         suffix = f" [{', '.join(attrs)}]" if attrs else ""
@@ -335,7 +339,10 @@ def _legend(
         f'<TR><TD COLSPAN="2" ALIGN="LEFT"><FONT POINT-SIZE="11" COLOR="{theme.text}" '
         f'FACE="{FONT}"><BR/><B>Links</B></FONT></TD></TR>'
     )
-    for glyph, label in (("&#9472;&#9472;", "Wired"), ("- - -", "Wireless")):
+    link_styles = [("&#9472;&#9472;", "Wired"), ("- - -", "Wireless")]
+    if any(e.asserted for e in topo.edges):
+        link_styles.append((". . .", "Stated in overrides"))
+    for glyph, label in link_styles:
         rows.append(
             f'<TR><TD ALIGN="RIGHT"><FONT POINT-SIZE="10" COLOR="{theme.edge}" '
             f'FACE="{FONT}">{glyph}</FONT></TD>'

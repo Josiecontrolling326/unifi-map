@@ -90,6 +90,10 @@ class Edge:
     dst: str
     label: str | None = None
     wireless: bool = False
+    # Stated by the user in an overrides file rather than reported by the
+    # controller. Drawn differently, so an assertion is never mistaken for an
+    # observation.
+    asserted: bool = False
 
 
 @dataclass

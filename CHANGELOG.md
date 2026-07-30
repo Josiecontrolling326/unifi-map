@@ -12,6 +12,16 @@ from there, so there is only ever one number to change.
 
 ## Unreleased
 
+### Added
+
+- Manual overrides are now applied, not just parsed. `--overrides` (or an
+  `overrides.toml` in the working directory) can add links the controller cannot
+  see, declare that one node runs inside another, rename a device, supply your
+  own artwork, and hide a node entirely.
+- Asserted links are drawn dotted in both SVG and draw.io, and the legend gains
+  a "Stated in overrides" entry, so a claim is never mistaken for an observation.
+- `--version`.
+
 ## 0.1.0
 
 First versioned release. The tool was already public and working before this

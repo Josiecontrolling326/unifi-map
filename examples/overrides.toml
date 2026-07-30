@@ -1,8 +1,7 @@
 # Manual topology overrides.
 #
-# NOT YET APPLIED. The schema and loader are implemented and tested; wiring them
-# into rendering is still to do. See docs/overrides.md. This file is the
-# reference for the intended format.
+# Picked up automatically if this file sits in the working directory as
+# overrides.toml, or point at it with --overrides. See docs/overrides.md.
 #
 # Selectors (`from`, `to`, `guest`, `host`) accept a MAC, an IP, or a
 # hostname/device name as shown on the map.

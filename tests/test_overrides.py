@@ -10,7 +10,44 @@ from pathlib import Path
 
 import pytest
 
-from unifi_map.overrides import Hosted, Link, OverrideError, Overrides, apply, load, parse
+from unifi_map.assets import AssetError
+from unifi_map.client import Snapshot
+from unifi_map.model import UNKNOWN_UPLINK_ID, build_topology
+from unifi_map.overrides import (
+    Hosted,
+    Link,
+    OverrideError,
+    Overrides,
+    apply,
+    load,
+    parse,
+    resolve,
+)
+
+from .conftest import SWITCH_MAC
+
+
+@pytest.fixture
+def topo(snapshot):
+    return build_topology(snapshot)
+
+
+@pytest.fixture
+def unplaced_topo(devices, clients, networkconf):
+    """Includes a client the controller could not place, like a VM."""
+    clients["data"].append(
+        {
+            "mac": "dd:ee:ff:00:00:60",
+            "hostname": "vm-host",
+            "is_wired": True,
+            "ip": "10.0.20.60",
+            "network_id": "net2",
+        }
+    )
+    return build_topology(
+        Snapshot(payloads={"device": devices, "client_active": clients, "networkconf": networkconf})
+    )
+
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "overrides.toml"
 
@@ -96,11 +133,147 @@ class TestLoad:
             load(path)
 
 
-def test_apply_is_still_a_documented_stub():
-    # Guards against the stub being quietly forgotten: when apply() is built,
-    # this test should be replaced with real behaviour coverage.
-    with pytest.raises(NotImplementedError, match="not implemented yet"):
-        apply(object(), Overrides())
+class TestResolve:
+    def test_matches_a_mac(self, topo):
+        assert resolve(SWITCH_MAC, topo) == SWITCH_MAC
+
+    def test_matches_an_address(self, topo):
+        assert resolve("10.0.20.10", topo) == "dd:ee:ff:00:00:01"
+
+    def test_matches_a_label_case_insensitively(self, topo):
+        assert resolve("core switch", topo) == SWITCH_MAC
+
+    def test_an_unmatched_selector_is_a_loud_error(self, topo):
+        with pytest.raises(OverrideError, match="matches nothing"):
+            resolve("no-such-device", topo)
+
+    def test_an_ambiguous_selector_is_a_loud_error(self, devices, clients, networkconf):
+        # Two clients sharing a name is entirely plausible.
+        for mac in ("dd:ee:ff:00:00:70", "dd:ee:ff:00:00:71"):
+            clients["data"].append(
+                {"mac": mac, "hostname": "printer", "is_wired": True, "network_id": "net1"}
+            )
+        topo = build_topology(
+            Snapshot(
+                payloads={"device": devices, "client_active": clients, "networkconf": networkconf}
+            )
+        )
+        with pytest.raises(OverrideError, match="matches 2 nodes"):
+            resolve("printer", topo)
+
+
+class TestApplyLinks:
+    def test_adds_an_asserted_edge(self, topo):
+        result = apply(topo, parse({"link": [{"from": "nas", "to": "Core Switch", "port": 10}]}))
+        added = [e for e in result.topology.edges if e.asserted]
+        assert len(added) == 1
+        assert added[0].dst == SWITCH_MAC
+        assert added[0].label == "port 10"
+        assert result.links_added == 1
+
+    def test_replaces_the_uplink_placeholder(self, unplaced_topo):
+        assert UNKNOWN_UPLINK_ID in unplaced_topo.nodes
+        result = apply(unplaced_topo, parse({"link": [{"from": "vm-host", "to": "Core Switch"}]}))
+        # Nothing hangs off the placeholder any more, so it goes.
+        assert UNKNOWN_UPLINK_ID not in result.topology.nodes
+        assert not any(UNKNOWN_UPLINK_ID in (e.src, e.dst) for e in result.topology.edges)
+
+    def test_a_node_ends_up_with_exactly_one_parent(self, topo):
+        result = apply(topo, parse({"link": [{"from": "nas", "to": "gateway"}]}))
+        nas = resolve("nas", result.topology)
+        assert len([e for e in result.topology.edges if e.src == nas]) == 1
+
+    def test_linking_a_node_to_itself_is_rejected(self, topo):
+        with pytest.raises(OverrideError, match="same node"):
+            apply(topo, parse({"link": [{"from": "nas", "to": "nas"}]}))
+
+
+class TestApplyHosted:
+    def test_reparents_the_guest(self, unplaced_topo):
+        result = apply(unplaced_topo, parse({"hosted": [{"guest": "vm-host", "host": "nas"}]}))
+        guest = resolve("vm-host", result.topology)
+        host = resolve("nas", result.topology)
+        edges = [e for e in result.topology.edges if e.src == guest]
+        assert len(edges) == 1
+        assert edges[0].dst == host
+        assert edges[0].asserted is True
+        assert result.hosted_applied == 1
+
+    def test_the_note_becomes_the_edge_label(self, unplaced_topo):
+        result = apply(
+            unplaced_topo,
+            parse({"hosted": [{"guest": "vm-host", "host": "nas", "note": "VM"}]}),
+        )
+        assert any(e.label == "VM" for e in result.topology.edges if e.asserted)
+
+    def test_hosting_itself_is_rejected(self, topo):
+        with pytest.raises(OverrideError, match="cannot host itself"):
+            apply(topo, parse({"hosted": [{"guest": "nas", "host": "nas"}]}))
+
+
+class TestApplyNode:
+    def test_renames(self, topo):
+        result = apply(topo, parse({"node": [{"match": "nas", "name": "Network Bidet"}]}))
+        assert any(n.label == "Network Bidet" for n in result.topology.nodes.values())
+        assert result.renamed == 1
+
+    def test_user_artwork_is_loaded(self, topo, tmp_path, png_bytes):
+        art = tmp_path / "bidet.png"
+        art.write_bytes(png_bytes(40, 30))
+        result = apply(topo, parse({"node": [{"match": "nas", "icon": str(art)}]}))
+        node_id = resolve("nas", result.topology)
+        assert result.icons[node_id].path == art
+        assert (result.icons[node_id].width, result.icons[node_id].height) == (40, 30)
+
+    def test_missing_artwork_is_a_loud_error(self, topo, tmp_path):
+        with pytest.raises(AssetError, match="No artwork file"):
+            apply(topo, parse({"node": [{"match": "nas", "icon": str(tmp_path / "nope.png")}]}))
+
+
+class TestApplyHide:
+    def test_hides_a_leaf(self, topo):
+        before = len(topo.nodes)
+        result = apply(topo, parse({"node": [{"match": "nas", "hide": True}]}))
+        assert len(result.topology.nodes) == before - 1
+        assert result.hidden == ["nas"]
+        assert all(n.label != "nas" for n in result.topology.nodes.values())
+
+    def test_hiding_leaves_no_dangling_edges(self, topo):
+        result = apply(topo, parse({"node": [{"match": "nas", "hide": True}]}))
+        for edge in result.topology.edges:
+            assert edge.src in result.topology.nodes
+            assert edge.dst in result.topology.nodes
+
+    def test_refuses_to_hide_something_with_children(self, topo):
+        with pytest.raises(OverrideError, match="depend on it"):
+            apply(topo, parse({"node": [{"match": "Core Switch", "hide": True}]}))
+
+    def test_the_refusal_names_the_children(self, topo):
+        with pytest.raises(OverrideError) as excinfo:
+            apply(topo, parse({"node": [{"match": "Core Switch", "hide": True}]}))
+        assert "nas" in str(excinfo.value)
+
+    def test_links_are_applied_before_hiding(self, unplaced_topo, tmp_path):
+        # Giving a node a child and then hiding it must be refused, which only
+        # works if links are applied first.
+        payload = {
+            "link": [{"from": "vm-host", "to": "nas"}],
+            "node": [{"match": "nas", "hide": True}],
+        }
+        with pytest.raises(OverrideError, match="depend on it"):
+            apply(unplaced_topo, parse(payload))
+
+
+def test_apply_does_not_mutate_the_original(topo):
+    before = len(topo.edges)
+    apply(topo, parse({"link": [{"from": "nas", "to": "gateway"}]}))
+    assert len(topo.edges) == before
+
+
+def test_nothing_to_do_is_not_an_error(topo):
+    result = apply(topo, Overrides())
+    assert result.changed is False
+    assert len(result.topology.nodes) == len(topo.nodes)
 
 
 class TestNodeOverrides:

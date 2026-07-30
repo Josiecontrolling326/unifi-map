@@ -1,9 +1,6 @@
 # Manual topology overrides
 
-**Status: designed, not yet applied.** The schema and loader in
-`src/unifi_map/overrides.py` are implemented and tested. Applying them during
-rendering is not built yet: `apply()` raises `NotImplementedError`, and nothing
-in the render path calls it. This document is the specification for that work.
+Manual corrections for the things a controller cannot tell you.
 
 ## The problem
 
@@ -118,37 +115,28 @@ aspect-ratio rules as fetched artwork.
 as displayed on the map. Names rather than ids keep the file readable and mean a
 device renamed in the controller only has to be corrected in one place.
 
-## Remaining work
+## How selectors are matched
 
-1. **`resolve(selector, topo) -> node id`.** Match a MAC exactly first, then an
-   IP, then a case-insensitive label. An ambiguous or unmatched selector must be
-   a loud error; a typo that silently does nothing is worse than a failed run.
-2. **Hiding.** For each `node` with `hide = true`, refuse if the node has
-   children, naming the node and its children in the error. Otherwise drop the
-   node, the edge to its parent, and `UNKNOWN_UPLINK_ID` if nothing points at it
-   any more. Report how many nodes were hidden rather than silently shrinking the
-   map, so a too-broad selector is noticed.
+A selector is tried as a MAC address, then an IP address, then the label shown on
+the map, in that order of specificity. A selector that matches nothing, or more
+than one node, stops the run with an error naming what it found. A typo that
+silently does nothing is worse than a failed render, because you would believe
+the correction had been applied.
 
-   Worth considering as an alternative or complement: the controller reports
-   per-radio state on an access point, so disabled radios may be detectable
-   without the user saying anything. That would be inference rather than
-   instruction, so it belongs behind its own flag if it happens at all, and it is
-   not a reason to leave `hide` unimplemented.
-3. **`apply(topo, overrides)`.** For each `link`, add an `Edge` and drop the
-   node's anchor to `UNKNOWN_UPLINK_ID`; remove the placeholder once nothing
-   references it. For each `hosted`, re-parent `guest` onto `host`. For each
-   `node`, substitute the label and load `icon` as a user-supplied `IconAsset`,
-   measured the same way cached artwork is so aspect ratio still drives cell
-   size. A missing or unreadable `icon` file must be a loud error, not a silent
-   fall back to the wrong fingerprint artwork.
-4. **Distinct visual treatment.** A user-asserted link must never be mistaken
-   for something the controller reported. Probably a dotted edge carrying the
-   note. Containment should read as containment, not as a cable (a nested
-   cluster, or a distinctly styled edge).
-5. **CLI.** `--overrides PATH`, defaulting to `./overrides.toml` when present.
-6. **Round-trip help.** A subcommand that emits the currently unplaced nodes, and
-   clients whose fingerprint looks improbable, as a starter overrides file, so
-   the user edits rather than writes from scratch.
+MAC addresses are the only selectors guaranteed to be unique. Names are easier to
+read and usually fine.
+
+## What it looks like
+
+Anything you assert is drawn as a **dotted** line, and the legend gains a
+"Stated in overrides" entry when a render contains one. Nothing you claim is ever
+mistaken for something the controller reported.
+
+## Order of application
+
+Links and nesting are applied first, then renames, artwork and hiding. That
+ordering matters: if an override gives a node a child, an attempt to hide that
+node in the same file is correctly refused.
 
 ## Design constraints
 

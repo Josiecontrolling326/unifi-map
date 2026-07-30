@@ -25,6 +25,9 @@ from .config import ConfigError, load_config
 from .layout import GraphvizError, GraphvizMissing, compute_layout, run_dot, stagger
 from .model import Kind, Topology, build_topology, client_networks, filter_by_network
 from .obfuscate import id_map, obfuscate
+from .overrides import OverrideError
+from .overrides import apply as apply_overrides
+from .overrides import load as load_overrides
 from .render_dot import ICON_SETS, LAYOUTS, Style, render_dot
 from .render_drawio import render_drawio
 from .svg_post import inline_svg_images
@@ -37,6 +40,9 @@ DEFAULT_OUT = Path("out")
 # Artwork lives apart from snapshots so --cache-dir can point at a read-only
 # dataset without downloads being written into it.
 DEFAULT_ASSET_CACHE = Path("cache/assets")
+# Picked up automatically when present, so the flag is only needed to point
+# somewhere else.
+DEFAULT_OVERRIDES = Path("overrides.toml")
 
 # svg first: it is the format that actually solves the readability problem.
 ALL_FORMATS = ("svg", "pdf", "png", "dot", "drawio")
@@ -270,10 +276,30 @@ def cmd_render(args: argparse.Namespace) -> int:
     )
     log.info("Style: icons=%s layout=%s theme=%s", style.icons, style.layout, args.theme)
 
+    override_icons: dict[str, IconAsset] = {}
+    path = args.overrides or (DEFAULT_OVERRIDES if DEFAULT_OVERRIDES.is_file() else None)
+    if path is not None:
+        overrides = load_overrides(path)
+        result = apply_overrides(topo, overrides)
+        topo = result.topology
+        override_icons = result.icons
+        log.info(
+            "Overrides from %s: %d link(s), %d nested, %d renamed, %d hidden%s",
+            path,
+            result.links_added,
+            result.hosted_applied,
+            result.renamed,
+            len(result.hidden),
+            f" ({', '.join(result.hidden)})" if result.hidden else "",
+        )
+
     icons: dict[str, IconAsset] = {}
     store = AssetStore(cache_dir=args.asset_cache, offline=args.offline)
     if style.icons == "unifi":
         icons = _resolve_icons(topo, store, style.theme)
+
+    # Artwork the user supplied wins over anything looked up for them.
+    icons.update(override_icons)
 
     if args.obfuscate:
         # Artwork is resolved first and then carried across, because UniFi
@@ -401,6 +427,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_flags.add_argument("--name", default="network-map", help="Output filename stem")
     render_flags.add_argument(
+        "--overrides",
+        type=Path,
+        default=None,
+        help=f"Manual corrections: links the controller cannot see, nesting, "
+        f"renames, your own artwork, and hiding. Defaults to {DEFAULT_OVERRIDES} "
+        "when that file exists",
+    )
+    render_flags.add_argument(
         "--obfuscate",
         action="store_true",
         help="Replace hostnames, addresses, MACs, network names and SSIDs with "
@@ -477,6 +511,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     except ConfigError as exc:
         log.error("Configuration error: %s", exc)
+        return 2
+    except OverrideError as exc:
+        log.error("Overrides: %s", exc)
         return 2
     except GraphvizMissing as exc:
         log.error("%s", exc)

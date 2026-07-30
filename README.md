@@ -363,30 +363,51 @@ that not one original hostname, address, MAC, network name or SSID appears in an
 of them, because a mode that cleans one format and leaves another readable would
 be worse than none at all.
 
-## Planned: manual overrides
+## Manual overrides
 
-Three things the tool can't get right on its own, so you'll be able to state them
-in a small `overrides.toml`:
+Three things a controller cannot tell you, which you can state in an
+`overrides.toml` (picked up automatically when it exists, or pass `--overrides`):
 
-- **Links the controller can't see**: a NAS on a direct 10G SFP+ DAC.
-- **Nesting**: a VM that lives *inside* a hypervisor rather than beside it.
-- **Things you would rather not draw**: gear that is "online" but idle (an access
-  point whose radios you disabled on purpose is still online to the controller,
-  so `--show-offline no` cannot remove it), or a host that is simply nobody
-  else's business on a map you are sharing. `hide = true` covers both, for leaf
-  nodes only.
-- **Wrong identification**: Ubiquiti's fingerprint database is confident and
-  sometimes wrong, which costs you both the name and the artwork. My
-  network-attached bidet is reliably identified as a smart toothbrush. So
-  `[[node]]` entries let you override the name and supply your own artwork.
+```toml
+# A link the controller is not in the path of.
+[[link]]
+from = "nas"
+to = "Rack Switch"
+port = 10
+speed = "10G"
 
-None of it can be inferred without inventing data, which is why you state it
-rather than the tool guessing.
+# Something running inside something else.
+[[hosted]]
+guest = "build-runner"
+host = "hypervisor"
+note = "VM"
 
-The schema and loader exist and are tested; **applying them during rendering is
-not built yet**. See [`docs/overrides.md`](docs/overrides.md) for the format and
-the remaining work, and [`examples/overrides.toml`](examples/overrides.toml) for
-a worked example.
+# A wrong fingerprint, corrected. Ubiquiti's database is confident and
+# sometimes wrong: mine insists my network-attached bidet is a smart
+# toothbrush.
+[[node]]
+match = "10.0.30.22"
+name = "Network Bidet"
+icon = "assets/bidet.png"
+
+# Something you would rather not draw at all.
+[[node]]
+match = "Garage"
+hide = true
+note = "radios disabled on purpose, online but doing nothing"
+```
+
+Selectors are tried as a MAC address, then an IP, then the label on the map. One
+that matches nothing, or several nodes, stops the run rather than being ignored.
+
+Anything you assert is drawn **dotted**, and the legend says so, so a claim of
+yours is never mistaken for something the controller reported.
+
+Only leaf nodes can be hidden. Hiding a switch would orphan everything behind it,
+and there is no honest answer to what should happen to the children, so it is
+refused with an error naming them.
+
+See [`docs/overrides.md`](docs/overrides.md) for the full format.
 
 ## Also planned
 

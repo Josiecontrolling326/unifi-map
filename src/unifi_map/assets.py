@@ -332,6 +332,20 @@ class AssetStore:
             return None
 
 
+def local_icon(path: Path) -> IconAsset:
+    """Artwork the user supplied, read from where they put it.
+
+    Loud on failure rather than silent: falling back to the wrong fingerprint
+    picture would defeat the point of overriding it in the first place.
+    """
+    if not path.is_file():
+        raise AssetError(f"No artwork file at {path}")
+    asset = _measure(path)
+    if asset is None:
+        raise AssetError(f"Could not read artwork at {path}")
+    return asset
+
+
 def _pillow_image():
     try:
         from PIL import Image

@@ -1,8 +1,7 @@
 """Manual topology overrides: schema and loader.
 
-STATUS: the schema and loader below are implemented and tested. Applying them to
-a :class:`~unifi_map.model.Topology` is NOT implemented yet; see ``apply()`` and
-``docs/overrides.md``. Nothing in the render path calls this module.
+Both halves are implemented: the TOML schema and loader, and :func:`apply`,
+which resolves selectors against a topology and rewrites it.
 
 Why this exists
 ---------------
@@ -33,8 +32,11 @@ dependency.
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from .assets import IconAsset, local_icon
+from .model import UNKNOWN_UPLINK_ID, Edge, Topology
 
 
 class OverrideError(ValueError):
@@ -199,37 +201,136 @@ def load(path: Path) -> Overrides:
     return parse(payload, base_dir=path.parent)
 
 
-# TODO: wire overrides into the render path. Remaining work, roughly in order:
-#
-# 1. resolve(selector, topo) -> node id. Match a MAC exactly first, then an IP,
-#    then a case-insensitive label. Ambiguous or unmatched selectors must be a
-#    loud error, never a silent no-op; a typo that quietly does nothing is
-#    worse than a failed run.
-# 2. apply(topo, overrides). For each Link, add an Edge and drop the node's
-#    anchor to UNKNOWN_UPLINK_ID if it has one; remove the placeholder entirely
-#    once nothing references it. For each Hosted, re-parent guest onto host with
-#    an edge styled to read as containment rather than a cable.
-# 3. A distinct visual treatment so a user-asserted link is never mistaken for
-#    something the controller reported. Probably a dotted edge plus the note as
-#    the label.
-# 4. NodeOverride hide: LEAF NODES ONLY. Refuse to hide a node that has
-#    children, naming the node and its children in the error. There is no good
-#    answer otherwise: dropping the children silently loses real devices, and
-#    reattaching them to the hidden node's parent invents a link that does not
-#    exist. For a leaf, drop the node, the edge to its parent, and
-#    UNKNOWN_UPLINK_ID if nothing points at it any more. Report a count of
-#    hidden nodes rather than silently shrinking the map.
-# 5. NodeOverride: substitute name, and load `icon` as a user-supplied
-#    IconAsset. It must be measured the same way cached artwork is, so aspect
-#    ratio still drives the cell size. A missing or unreadable icon file has to
-#    be a loud error, not a silent fall back to the wrong fingerprint artwork.
-# 6. CLI: --overrides PATH, defaulting to ./overrides.toml when present.
-# 7. Round-trip help: a subcommand that lists unplaced nodes and suspicious
-#    fingerprints as a starter overrides file, so the user edits rather than
-#    writes from scratch.
-def apply(topo, overrides: Overrides):
-    """Not implemented yet. See the TODO above and docs/overrides.md."""
-    raise NotImplementedError(
-        "Applying overrides is not implemented yet. The schema and loader are "
-        "stable; see docs/overrides.md for the intended behaviour."
+@dataclass
+class ApplyResult:
+    """What `apply` did, so the caller can report it rather than guess."""
+
+    topology: Topology
+    icons: dict[str, IconAsset] = field(default_factory=dict)
+    renamed: int = 0
+    hidden: list[str] = field(default_factory=list)
+    links_added: int = 0
+    hosted_applied: int = 0
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.renamed or self.hidden or self.links_added or self.hosted_applied)
+
+
+def resolve(selector: str, topo: Topology) -> str:
+    """Find the node a selector names, or raise.
+
+    Tried in order of how specific each is: MAC, then address, then the label as
+    shown on the map. An unmatched or ambiguous selector is an error rather than
+    a silent no-op, because a typo that quietly does nothing is worse than a run
+    that stops and says so.
+    """
+    needle = selector.strip()
+    lowered = needle.lower()
+
+    exact = [n.id for n in topo.nodes.values() if n.id.lower() == lowered]
+    if len(exact) == 1:
+        return exact[0]
+
+    by_ip = [n.id for n in topo.nodes.values() if n.ip and n.ip == needle]
+    if len(by_ip) == 1:
+        return by_ip[0]
+
+    by_label = [n.id for n in topo.nodes.values() if n.label.lower() == lowered]
+    if len(by_label) == 1:
+        return by_label[0]
+
+    matches = by_ip or by_label
+    if matches:
+        names = ", ".join(sorted(topo.nodes[m].label for m in matches))
+        raise OverrideError(
+            f"{selector!r} matches {len(matches)} nodes ({names}). "
+            "Use a MAC address, which is unique."
+        )
+    raise OverrideError(
+        f"{selector!r} matches nothing on the map. Check the spelling, or whether "
+        "the device was connected when the snapshot was taken."
     )
+
+
+def _children(topo: Topology, node_id: str) -> list[str]:
+    """Nodes hanging off *node_id*. Edges are stored child to parent."""
+    return [e.src for e in topo.edges if e.dst == node_id]
+
+
+def _drop_parent_edges(topo: Topology, node_id: str) -> None:
+    topo.edges[:] = [e for e in topo.edges if e.src != node_id]
+
+
+def _prune_placeholder(topo: Topology) -> None:
+    """Remove the uplink placeholder once nothing hangs off it."""
+    if UNKNOWN_UPLINK_ID in topo.nodes and not _children(topo, UNKNOWN_UPLINK_ID):
+        del topo.nodes[UNKNOWN_UPLINK_ID]
+        topo.edges[:] = [e for e in topo.edges if UNKNOWN_UPLINK_ID not in (e.src, e.dst)]
+
+
+def apply(topo: Topology, overrides: Overrides) -> ApplyResult:
+    """Apply *overrides* to a copy of *topo*.
+
+    Order matters. Links and nesting are applied before hiding, so that hiding a
+    node correctly sees the children an override just gave it.
+    """
+    working = Topology(
+        nodes=dict(topo.nodes),
+        edges=list(topo.edges),
+        networks=dict(topo.networks),
+    )
+    result = ApplyResult(topology=working)
+
+    for link in overrides.links:
+        source = resolve(link.source, working)
+        target = resolve(link.target, working)
+        if source == target:
+            raise OverrideError(f"[[link]] {link.source!r} and {link.target!r} are the same node")
+        # The controller could not place this node, so whatever it was anchored
+        # to was a placeholder rather than an observation.
+        _drop_parent_edges(working, source)
+        label = link.label or link.note
+        working.edges.append(
+            Edge(src=source, dst=target, label=label, wireless=link.wireless, asserted=True)
+        )
+        result.links_added += 1
+
+    for entry in overrides.hosted:
+        guest = resolve(entry.guest, working)
+        host = resolve(entry.host, working)
+        if guest == host:
+            raise OverrideError(f"[[hosted]] {entry.guest!r} cannot host itself")
+        _drop_parent_edges(working, guest)
+        working.edges.append(Edge(src=guest, dst=host, label=entry.note or "hosted", asserted=True))
+        result.hosted_applied += 1
+
+    for node in overrides.nodes:
+        node_id = resolve(node.match, working)
+        current = working.nodes[node_id]
+
+        if node.hide:
+            kids = _children(working, node_id)
+            if kids:
+                names = ", ".join(sorted(working.nodes[k].label for k in kids))
+                raise OverrideError(
+                    f"Cannot hide {current.label!r}: {len(kids)} node(s) depend on it "
+                    f"({names}). Hiding it would orphan them. Only leaf nodes can be "
+                    "hidden."
+                )
+            del working.nodes[node_id]
+            working.edges[:] = [e for e in working.edges if node_id not in (e.src, e.dst)]
+            result.hidden.append(current.label)
+            continue
+
+        changes: dict[str, object] = {}
+        if node.name:
+            changes["label"] = node.name
+        if changes:
+            working.nodes[node_id] = replace(current, **changes)
+            result.renamed += 1
+        if node.icon is not None:
+            result.icons[node_id] = local_icon(node.icon)
+
+    _prune_placeholder(working)
+    return result

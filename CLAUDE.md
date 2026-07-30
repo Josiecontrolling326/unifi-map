@@ -163,145 +163,23 @@ join key; fake ones would leave the demo unable to show icons. `tests/test_demo.
 enforces both of those properties. The dataset intentionally includes an offline
 device, four VLANs, and an unplaceable client so those behaviours are visible.
 
-## Overrides are a stub
+## Overrides
 
-`overrides.py` has a working, tested schema and loader; `apply()` raises
-`NotImplementedError` and nothing in the render path calls it. See
-`docs/overrides.md` for the spec and remaining work. When implementing, an
-unmatched or ambiguous selector must be a loud error (a typo that silently does
-nothing is worse than a failed run), and user-asserted links must stay visually
-distinguishable from what the controller reported.
+Implemented end to end: schema, loader, `resolve()` and `apply()`. Notes:
 
-## Open work
-
-- **ISP logo on the Internet node.** `wan_info()` reads `isp_name` from
-  `stat/health`, so the node is already labelled ("Carl's Discount Internet & Tackle"). The logo is
-  real: the UniFi infrastructure view renders a brand mark beside each WAN entry,
-  a brand mark for the primary on WAN1 and another for the backup on WAN2 (in
-  testing, Carl's Discount Internet & Tackle and Cruelty Cable Co.). Both are present, so
-  expect a systematic lookup keyed on something like the ISP name or ASN, not a
-  sparse hand-maintained table.
-
-  Where it is *not*: searched `/275`, `/905`, `/989`, `/main~0`, `/main~2` and the
-  legacy `/manage/` bundles for `isp*Logo|Icon|Image|Brand`, `/isp` URL
-  templates, and carrier/provider logo identifiers. Only hits were
-  `${NCA}/network-cloud/v2/isp-metrics`, an `/isp-viewer` route, and a legacy
-  `ispThroughput.pug`. None of them build an image URL.
-
-  What `images.svc.ui.com` turned out to be: a generic image resizing proxy,
-  `https://images.svc.ui.com/?u=<source-url>&w=<px>&q=<quality>`, built by a
-  shared `<img>` component in `main~2` that also takes `srcFallbackOffline` and
-  `srcFallbackBundled`. It is not ISP-specific and resolves nothing on its own;
-  the real logo URL has to arrive as data in the `u` parameter.
-
-  The only ISP data reference in the bundles is
-  `${NCA}/network-cloud/v2/isp-metrics`, a **cloud** endpoint, so the logo URL
-  may well be cloud-provided. But the local `stat/health` WAN subsystem does
-  carry an **`asn`** alongside `isp_name`, `isp_organization` and `wan_ip`, and
-  an ASN is exactly the sort of key a brand-logo service keys on. That is
-  available from a local API key, so do not write this off as cloud-only without
-  testing it.
-
-  Concrete next step: take the ASN from `stat/health` (a real one, not a
-  documentation value) and see whether any
-  Ubiquiti-hosted path resolves a logo from it, then feed whatever URL that
-  yields through the `images.svc.ui.com/?u=...` proxy. If nothing local resolves
-  it, only then treat cloud as the answer.
-
-  Do not repeat: greps for `isp*Logo|Icon|Image|Brand`, `/isp` templates or
-  carrier/provider identifiers across `/275`, `/905`, `/989`, `/main~0`,
-  `/main~2` and the legacy `/manage/` bundles. Also do not look for a webpack
-  chunk id-to-hash map; the React bundles do not expose one in the usual form.
-- **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
-  and uplinks, separate from the client topology. `--no-clients` approximates it.
-- **Apply overrides** (see above).
-- **Obfuscation is built** (`--obfuscate`, `obfuscate.py`). Notes for changing it:
-
-  - It runs on the model before anything is drawn, so a renderer cannot leak a
-    value that is already gone. Keep it that way rather than filtering output.
-  - Node ids are derived from MAC addresses and appear in DOT identifiers and
-    draw.io cell ids, so ids are remapped too, not just labels.
-  - **Artwork is resolved before scrubbing**, and the icon dictionary is remapped
-    through `id_map()`. UniFi hardware appearing as a client is matched on its
-    hostname, so obfuscating first silently lost the camera's artwork. That is
-    why `id_map()` is public.
-  - A client's `detail` is the SSID when it has no fingerprint, and a catalogue
-    product name when it does, so `detail` is dropped only when `dev_id` is None.
-  - Pseudonyms come from a fixed ordering, never from a hash of the real name,
-    which for a short hostname is reversible.
-  - The Internet node's label is the ISP name and its ip is the WAN address.
-    Both are replaced. An early version kept the label by mistake.
-  - `test_nothing_leaks_into_any_output_format` renders SVG, DOT and draw.io and
-    asserts no original value survives in any of them. Extend it when adding a
-    format; a partially clean export is worse than none.
-  - **Known limit, documented in the README:** artwork still shows what a device
-    is, brand marks included. `--icons builtin` is the stronger option, and
-    `--title` is passed through untouched.
-
-- **CI is built** (`.github/workflows/ci.yml`). Two jobs: `check` runs
-  `ruff format --check`, `ruff check` and `pytest` across Python 3.11, 3.12 and
-  3.13, then renders the demo dataset plainly and obfuscated to exercise
-  Graphviz end to end; `policy` enforces what the test suite cannot, namely the
-  that no snapshot, render, icon font or artwork is committed.
-
-  It needs no secrets, because nothing in the suite touches the network and the
-  demo renders use `--icons builtin --offline`. **Do not add a job that talks to
-  a real controller**; there is nothing to gain and it would mean an API key in
-  repository secrets.
-
-- **GitHub community standards.** The repo passes on README and LICENSE and is
-  missing the rest of GitHub's checklist. None of it is urgent, all of it is
-  cheap, and two are worth actual thought rather than boilerplate:
-
-  Done: `CODE_OF_CONDUCT.md` (Contributor Covenant, added via the web UI).
-  Remaining:
-
-  - **Repository description.** Not a file: it is a GitHub setting. Keep it
-    consistent with the `description` in `pyproject.toml`.
-  - **`SECURITY.md`.** Worth writing rather than pasting a template. The useful
-    content is that the tool is read only against a controller, that it wants an
-    API key and what that key can reach, that snapshots under `cache/` are a
-    MAC, hostname and IP inventory that should not be shared, and how to report
-    something privately.
-  - **`CONTRIBUTING.md`.** Should say `make check` is the gate, that tests never
-    touch the network, that fixtures must stay non-identifying, and that the code
-    is largely AI authored under review, since a contributor deserves to know
-    that before reading it.
-  Also done: `SECURITY.md`, `CONTRIBUTING.md`, and the issue and pull request
-  templates under `.github/`. The issue forms ask for console model, Network
-  version and site count, since those three explain most of what could go wrong
-  and are exactly what the caveats section admits are untested.
-
-## API key auth only
-
-Verified 2026-07-29: an `X-API-KEY` header reaches `stat/device`, `stat/sta`,
-`rest/networkconf`, `stat/health`, `v2/api/fingerprint_devices/0` and the web
-app's static assets, so a key covers the whole tool including the icon font.
-Password auth was removed; do not add it back.
-
-## Observed versus assumed
-
-Everything here was developed against one console: a UDM Pro Max on Network
-10.5.67 with a **single site**. Keep the docs honest about that boundary rather
-than letting confident prose creep in.
-
-Specifically not verified, and currently caveated in the README:
-
-- Multi-site controllers. The claim that a hand-created site's internal name is
-  an opaque string is general UniFi knowledge, not an observation. This is why
-  the docs point at the URL and `GET /proxy/network/api/self/sites` instead of
-  describing what the value looks like.
-- That Lucid imports the `.drawio` output. draw.io itself is confirmed working.
-
-If any of these gets verified, tighten the README instead of leaving a hedge in
-place. If one turns out broken, it is a bug, not a documented limitation.
-
-## Versioning
-
-Semantic versioning, pre-1.0. `src/unifi_map/__init__.py` holds `__version__` and
-`pyproject.toml` reads it via `[tool.setuptools.dynamic]`, so never write the
-number in two places. Record user-visible changes in `CHANGELOG.md` under
-Unreleased as they land, rather than reconstructing them at release time.
+- `resolve()` tries MAC, then IP, then label. Unmatched or ambiguous is a loud
+  error, never a silent no-op.
+- `apply()` works on a copy and returns an `ApplyResult` carrying counts, the
+  hidden labels and any user-supplied icons, so the CLI can report what happened
+  rather than guess.
+- **Order matters.** Links and nesting are applied before hiding, so hiding a
+  node that an override just gave a child is correctly refused.
+- Hiding is leaf-only by design. Do not add child-reparenting; there is no
+  honest answer to what should happen to them.
+- Asserted edges carry `Edge.asserted` and render dotted in both backends. Keep
+  them visually distinct from observed links.
+- User artwork is loaded through `assets.local_icon()`, which raises rather than
+  falling back, and override icons are merged over looked-up ones in the CLI.
 
 ## Data hygiene
 

@@ -169,7 +169,9 @@ def render_drawio(
             f"endArrow=none;startArrow=none;strokeColor={theme.edge};"
             f"fontColor={theme.edge_label};fontSize=9;"
         )
-        if edge.wireless:
+        if edge.asserted:
+            style += "dashed=1;dashPattern=1 3;"
+        elif edge.wireless:
             style += "dashed=1;"
         cell = ET.SubElement(
             root,
