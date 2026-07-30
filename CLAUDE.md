@@ -189,6 +189,67 @@ Implemented end to end: schema, loader, `resolve()` and `apply()`. Notes:
 - User artwork is loaded through `assets.local_icon()`, which raises rather than
   falling back, and override icons are merged over looked-up ones in the CLI.
 
+## Open work
+
+Restored after being deleted by accident in 9b18a1a, where a section replacement
+spanned two headings and took this with it. If you replace a range between
+headings, check what was in between.
+
+- **ISP logo on the Internet node.** `wan_info()` reads `isp_name` from
+  `stat/health`, so the node is already labelled ("Carl's Discount Internet & Tackle"). The logo is
+  real: the UniFi infrastructure view renders a brand mark beside each WAN entry,
+  a brand mark for the primary on WAN1 and another for the backup on WAN2 (in
+  testing, Carl's Discount Internet & Tackle and Cruelty Cable Co.). Both are present, so
+  expect a systematic lookup keyed on something like the ISP name or ASN, not a
+  sparse hand-maintained table.
+
+  Where it is *not*: searched `/275`, `/905`, `/989`, `/main~0`, `/main~2` and the
+  legacy `/manage/` bundles for `isp*Logo|Icon|Image|Brand`, `/isp` URL
+  templates, and carrier/provider logo identifiers. Only hits were
+  `${NCA}/network-cloud/v2/isp-metrics`, an `/isp-viewer` route, and a legacy
+  `ispThroughput.pug`. None of them build an image URL.
+
+  What `images.svc.ui.com` turned out to be: a generic image resizing proxy,
+  `https://images.svc.ui.com/?u=<source-url>&w=<px>&q=<quality>`, built by a
+  shared `<img>` component in `main~2` that also takes `srcFallbackOffline` and
+  `srcFallbackBundled`. It is not ISP-specific and resolves nothing on its own;
+  the real logo URL has to arrive as data in the `u` parameter.
+
+  The only ISP data reference in the bundles is
+  `${NCA}/network-cloud/v2/isp-metrics`, a **cloud** endpoint, so the logo URL
+  may well be cloud-provided. But the local `stat/health` WAN subsystem does
+  carry an **`asn`** alongside `isp_name`, `isp_organization` and `wan_ip`, and
+  an ASN is exactly the sort of key a brand-logo service keys on. That is
+  available from a local API key, so do not write this off as cloud-only without
+  testing it.
+
+  Concrete next step: take the ASN from `stat/health` (a real one, not a
+  documentation value) and see whether any
+  Ubiquiti-hosted path resolves a logo from it, then feed whatever URL that
+  yields through the `images.svc.ui.com/?u=...` proxy. If nothing local resolves
+  it, only then treat cloud as the answer.
+
+  Do not repeat: greps for `isp*Logo|Icon|Image|Brand`, `/isp` templates or
+  carrier/provider identifiers across `/275`, `/905`, `/989`, `/main~0`,
+  `/main~2` and the legacy `/manage/` bundles. Also do not look for a webpack
+  chunk id-to-hash map; the React bundles do not expose one in the usual form.
+
+- **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
+  and uplinks, separate from the client topology. `--no-clients` approximates it.
+
+- **A `--support-file` mode.** Evaluated and viable; see the support file section
+  below for exactly which three files to read and what it would cost.
+
+- **Repository description on GitHub.** Not a file, it is a setting, which is why
+  it keeps getting forgotten. Keep it consistent with `pyproject.toml`:
+  "Export your UniFi network topology as zoomable SVG, PDF, or an editable
+  draw.io diagram, with real Ubiquiti device artwork."
+
+Done since this list was last accurate: overrides are applied rather than only
+parsed, CI exists, obfuscation exists, versioning started at 0.1.0, `SECURITY.md`
+and `CONTRIBUTING.md` and the issue and PR templates were written, and clients
+behind non-UniFi devices are placed from the controller's own graph.
+
 ## Support files could be a second input, and nearly work already
 
 Someone suggested a UniFi support file carries what this tool needs. Inspected
