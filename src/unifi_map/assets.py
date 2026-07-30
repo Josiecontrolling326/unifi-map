@@ -50,6 +50,15 @@ IMAGE_URL = "https://static.ui.com/fingerprint/ui/images/{id}/{variant}/{hash}.p
 CLIENT_ICON_URL = "https://static.ui.com/fingerprint/0/{dev_id}_{size}.png"
 CLIENT_ICON_SIZES = ("257x257", "129x129", "101x101")
 
+# The client fingerprint database: dev_id to product name, family and vendor.
+# Published alongside the icons, so it needs no controller and no credentials.
+# The controller serves its own copy at v2/api/fingerprint_devices/0, but this
+# is the same data and was a superset when compared, which is what allows
+# `--support-file` to resolve client artwork without connecting to a console.
+# Found in a support file's own logs; both static.ui.com and the older
+# static.ubnt.com serve it identically.
+CLIENT_CATALOG_URL = "https://static.ui.com/fingerprint/0/devicelist.json"
+
 # Preference order. `topology` is what the UniFi topology view uses; the others
 # are fallbacks for hardware that lacks it.
 VARIANTS = ("topology", "nopadding", "default")
@@ -152,14 +161,44 @@ class AssetStore:
         self.fingerprint_db_path.write_text(json.dumps(payload), encoding="utf-8")
 
     def fingerprint_db(self) -> dict[str, Any] | None:
-        """The cached fingerprint database, or None if it was never fetched."""
-        if not self.fingerprint_db_path.is_file():
+        """The client fingerprint database, cached or freshly downloaded.
+
+        Ubiquiti publish this at `CLIENT_CATALOG_URL`, so it needs no
+        controller and no credentials. That matters: it is what lets
+        `--support-file` resolve client artwork without connecting to anyone's
+        console, which is the entire point of reading a support file.
+
+        The published copy is a superset of what a controller serves (5809
+        entries against 5789 when compared, containing every id the controller
+        had), so a live fetch is a convenience rather than a requirement.
+        """
+        if self.fingerprint_db_path.is_file():
+            try:
+                payload = json.loads(self.fingerprint_db_path.read_text(encoding="utf-8"))
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict) and payload.get("dev_ids"):
+                return payload
+
+        if self.offline:
+            log.warning("Offline and no cached client fingerprints; client artwork disabled.")
             return None
+
         try:
-            payload = json.loads(self.fingerprint_db_path.read_text(encoding="utf-8"))
-        except ValueError:
+            response = requests.get(CLIENT_CATALOG_URL, timeout=self.timeout)
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            log.warning(
+                "Could not fetch the client fingerprint database (%s); client artwork disabled.",
+                exc,
+            )
             return None
-        return payload if isinstance(payload, dict) and payload.get("dev_ids") else None
+
+        if not isinstance(payload, dict) or not payload.get("dev_ids"):
+            return None
+        self.save_fingerprint_db(payload)
+        return payload
 
     def glyph_codepoints(self) -> dict[str, int]:
         if not self.font_map_path.is_file():

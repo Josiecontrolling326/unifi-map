@@ -317,21 +317,28 @@ substring rule was measured first and got 8 of 11 right, mapping a human-named
 `RokuUltraGreatRoom` onto `Roku Ultra` when the controller said `Roku Device`.
 Do not relax this back to containment.
 
-This needs the fingerprint database, which the archive lacks, so `AssetStore`
-caches it (`client-fingerprints.json`) on every live fetch, beside the artwork
-rather than in the snapshot, because it describes Ubiquiti's catalogue rather
-than one network. With it, 13 of 47 clients drew real product artwork and all 13
-matched the controller; without it, everything still renders as glyphs.
+This needs the fingerprint database, which the archive lacks. **Ubiquiti publish
+it**, at `static.ui.com/fingerprint/0/devicelist.json`
+(`CLIENT_CATALOG_URL`), so no controller is involved. 13 of 47 clients drew real
+product artwork on a completely cold cache with no console contact, and all 13
+matched what the controller reports.
+
+That URL must stay controller-free. Support-file mode exists precisely so people
+who will not point this tool at their console can still use it, so anything that
+reintroduces an API dependency defeats it. `AssetStore` still caches the database
+during a live fetch, but only as a saved download.
 
 Dead ends already checked, do not repeat: `mca-dump.fingerprints.hosts` carries
 `custom`, `ml` and `tdts` per host, but only `ml` shares the controller's id
 space (three Rokus show `tdts=292` where the controller says `27`), and it adds
 no coverage over the DPI file. `dpi-flow-stats` log lines
 (`fp ml for mac: ... [Name - id]@n%`) hold the ML top-3 but cover only 16 MACs
-and are logs. There is no client fingerprint index on the CDN:
+and are logs. Guessing CDN paths does not work:
 `static.ui.com/fingerprint/{0/,}{public,index,devices,fingerprint}.json` all
-return the same 19177-byte ui.com marketing page, as does a deliberately bogus
-path.
+return the same 19177-byte marketing page, as does a deliberately bogus path, so
+always check a control before believing a 200. `devicelist.json` was found by
+grepping the *support file's own logs* for `https?://.*fingerprint.*`, after
+guessing had failed twice; `static.ubnt.com` serves it identically.
 
 Reading Protect's camera list keeps the other case that matters: UniFi hardware
 sitting on a switch port as a client still resolves its artwork, because the

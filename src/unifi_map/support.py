@@ -513,10 +513,10 @@ def _health(infrastructure: dict[str, Any]) -> list[dict[str, Any]]:
 def load_support_file(path: Path, site: str | None = None, fingerprint_db: Any = None) -> Snapshot:
     """Read *path* and return a Snapshot equivalent to a live fetch.
 
-    *fingerprint_db* is the controller's client fingerprint database, which a
-    support file does not contain. Supplying it, from the asset cache of any
-    previous live fetch, is what lets client artwork resolve; without it clients
-    still draw, as glyphs.
+    *fingerprint_db* is the client fingerprint database, which a support file
+    does not contain. Supplying it is what lets client artwork resolve; without
+    it clients still draw, without product artwork. `AssetStore.fingerprint_db()`
+    obtains it from Ubiquiti's published copy, so no controller is involved.
 
     Raises `SupportFileError` if the archive is unreadable or does not carry
     the device and topology data a map needs.
@@ -571,9 +571,9 @@ def load_support_file(path: Path, site: str | None = None, fingerprint_db: Any =
         )
     else:
         log.info(
-            "  No cached client fingerprint database, so clients draw without "
-            "product artwork. Run a live `fetch` against any controller once to "
-            "cache it. Device artwork is unaffected and needs no controller."
+            "  No client fingerprint database available, so clients draw "
+            "without product artwork. It is downloaded automatically unless "
+            "--offline is set."
         )
 
     payloads: dict[str, Any] = {

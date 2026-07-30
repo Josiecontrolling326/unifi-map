@@ -27,9 +27,9 @@ from there, so there is only ever one number to change.
   Client artwork is partial. A support file stores no fingerprint id, but a
   client you have not renamed carries the console's own name for it, which is
   the product it identified, and that is enough to look the product back up.
-  Clients you have named yourself fall back to glyphs. The lookup uses
-  Ubiquiti's fingerprint database, now cached during a live `fetch` so it is
-  available offline.
+  Clients you have named yourself draw without product artwork. The lookup uses
+  Ubiquiti's published fingerprint database, downloaded from their CDN and
+  cached, so this needs no controller either.
 
 - Manual overrides are now applied, not just parsed. `--overrides` (or an
   `overrides.toml` in the working directory) can add links the controller cannot

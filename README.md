@@ -211,13 +211,13 @@ the ISP name and Protect camera artwork all survive.
 that client artwork is matched on, but it can often be recovered: when you have
 not renamed a client yourself, the console names it after the product it
 identified, and that name is enough to look the product back up. Clients you
-have named, and clients the console never identified, fall back to glyphs. UniFi
-hardware appearing as a client is unaffected and still draws properly.
+have named, and clients the console never identified, draw without product
+artwork. UniFi hardware appearing as a client is unaffected and still draws
+properly.
 
-This lookup needs Ubiquiti's client fingerprint database, which is not in the
-archive either. It is cached automatically the first time you run a live `fetch`
-against any controller of your own. If you have never done that, everything
-still renders, with glyphs for all clients.
+The product lookup uses Ubiquiti's published fingerprint database, downloaded
+from their CDN and cached. Like all the artwork, it involves no controller and
+no credentials, and `--offline` skips it.
 
 Two smaller caveats:
 

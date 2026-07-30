@@ -111,9 +111,11 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
     snapshot = load_support_file(
         args.support_file,
         args.support_site,
-        # Not in the archive. Whatever a previous live fetch cached is what
-        # makes client artwork possible here.
-        fingerprint_db=AssetStore(cache_dir=args.asset_cache).fingerprint_db(),
+        # Not in the archive, but published by Ubiquiti, so this is fetched or
+        # read from cache without going near anyone's controller.
+        fingerprint_db=AssetStore(
+            cache_dir=args.asset_cache, offline=getattr(args, "offline", False)
+        ).fingerprint_db(),
     )
     snapshot.write(args.cache_dir)
     log.info("Wrote snapshot to %s/", args.cache_dir)

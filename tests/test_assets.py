@@ -271,3 +271,37 @@ class TestHardwareNameLookup:
         assert store.sysid_for_name("u7") is None
         assert store.sysid_for_name("") is None
         assert store.sysid_for_name(None) is None
+
+
+class TestClientFingerprintDatabase:
+    """The dev_id to product-name catalogue.
+
+    Ubiquiti publish this, so it needs no controller. That is what keeps
+    `--support-file` usable by someone who deliberately will not point this tool
+    at their console.
+    """
+
+    def _store(self, tmp_path, offline: bool) -> AssetStore:
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        return AssetStore(cache_dir=cache, offline=offline)
+
+    def test_a_cached_database_is_read_without_the_network(self, tmp_path):
+        store = self._store(tmp_path, offline=True)
+        store.save_fingerprint_db({"dev_ids": {"5282": {"name": "Govee Lyra"}}})
+        assert store.fingerprint_db()["dev_ids"]["5282"]["name"] == "Govee Lyra"
+
+    def test_offline_with_no_cache_yields_nothing_rather_than_failing(self, tmp_path):
+        # Clients still render; they just do not get product artwork.
+        assert self._store(tmp_path, offline=True).fingerprint_db() is None
+
+    def test_a_payload_without_dev_ids_is_not_cached(self, tmp_path):
+        store = self._store(tmp_path, offline=True)
+        store.save_fingerprint_db({"nonsense": True})
+        assert not store.fingerprint_db_path.exists()
+        assert store.fingerprint_db() is None
+
+    def test_a_corrupt_cache_does_not_raise(self, tmp_path):
+        store = self._store(tmp_path, offline=True)
+        store.fingerprint_db_path.write_text("{not json", encoding="utf-8")
+        assert store.fingerprint_db() is None
