@@ -1,0 +1,11 @@
+{
+  "edges": [
+    {
+      "downlinkMac": "02:00:00:00:10:03",
+      "type": "WIRED",
+      "uplinkMac": "02:00:00:00:10:02"
+    }
+  ],
+  "has_unknown_switch": false,
+  "vertices": []
+}

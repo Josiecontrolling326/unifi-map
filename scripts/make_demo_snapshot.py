@@ -322,12 +322,29 @@ def build() -> dict[str, dict]:
         {"subsystem": "wlan", "status": "ok"},
     ]
 
+    # The controller's own graph. build-runner sits behind the hypervisor, which
+    # stat/sta cannot express because the hypervisor is not a UniFi device. The
+    # reverse proxy is deliberately left out, so the demo also shows what happens
+    # when nothing knows where a client is.
+    topology = {
+        "vertices": [],
+        "edges": [
+            {
+                "downlinkMac": "02:00:00:00:10:03",
+                "uplinkMac": "02:00:00:00:10:02",
+                "type": "WIRED",
+            }
+        ],
+        "has_unknown_switch": False,
+    }
+
     meta = {"rc": "ok"}
     return {
         "device": {"meta": meta, "data": devices},
         "client_active": {"meta": meta, "data": clients},
         "networkconf": {"meta": meta, "data": networks},
         "health": {"meta": meta, "data": health},
+        "topology": topology,
     }
 
 
@@ -337,7 +354,10 @@ def main() -> None:
     for name, payload in payloads.items():
         path = OUT / f"{name}.json"
         path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        print(f"wrote {path} ({len(payload['data'])} records)")
+        # The topology payload is a graph rather than a record list.
+        count = len(payload["data"]) if "data" in payload else len(payload.get("edges", []))
+        unit = "records" if "data" in payload else "edges"
+        print(f"wrote {path} ({count} {unit})")
 
 
 if __name__ == "__main__":

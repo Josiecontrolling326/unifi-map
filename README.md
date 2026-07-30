@@ -311,10 +311,18 @@ the legend entirely, matching the UniFi UI.
 
 ### "Uplink not reported by controller"
 
-Some clients (typically VMs and containers behind another host, on a bridge or
-macvlan) have no `sw_mac`/`ap_mac` in the controller's data. They're anchored to
-an explicit placeholder node rather than left floating (which looks like a bug)
-or attached to a guessed parent (which would invent topology that doesn't exist).
+You will probably never see this node, but it exists for the case where the
+controller genuinely does not know where something is attached.
+
+`stat/sta` only reports a client's uplink when that uplink is a UniFi device, so
+anything behind a non-UniFi box (VMs and containers behind a NAS, or a client on
+an unmanaged switch) comes back with no `sw_mac` at all. Those are resolved
+against the controller's own topology graph, where a client can be another
+client's uplink, which is how the console draws them correctly.
+
+Anything still unresolved after that is anchored to an explicit placeholder,
+rather than left floating (which looks like a bug) or attached to a guessed
+parent (which would invent a connection that does not exist).
 
 ## Sharing a map: `--obfuscate`
 
@@ -329,7 +337,9 @@ unifi-map render --obfuscate --theme dark
 ![The same real network, obfuscated](docs/images/example-obfuscated-dark.png)
 
 *A real network, obfuscated. Every device is a pseudonym, addresses are
-renumbered, and the connections, roles and artwork are untouched.*
+renumbered, and the connections, roles and artwork are untouched. Note the four
+clients hanging off one host near the middle: those are VMs behind a NAS, which
+`stat/sta` cannot place and the controller's own graph can.*
 
 **Replaced:** hostnames and device names, IP addresses, MAC addresses (including
 the node identifiers in the DOT and draw.io output, which are derived from them),
@@ -475,10 +485,12 @@ Devices are matched to Ubiquiti's device catalog on **sysid**, not model name:
 the controller's `model` string doesn't reliably match the catalog's shortnames
 (a USW Pro HD 24 PoE reports `USWED72` while the catalog calls it `USPH24P`).
 
-The graph is built from `stat/device` uplinks plus `stat/sta` and `networkconf`
-rather than the `v2/.../topology` endpoint, whose structure shifts between
-controller versions. That endpoint is still fetched and cached in case it
-becomes useful.
+The graph is built from `stat/device` uplinks plus `stat/sta` and `networkconf`,
+then completed with the controller's own `v2/.../topology` graph for clients the
+first two cannot place. That endpoint is read defensively, since it is a v2 API
+whose structure has changed before: anything unexpected in it yields nothing
+rather than raising, so a controller upgrade degrades the map instead of breaking
+the run.
 
 ## What has been checked, and what has not
 

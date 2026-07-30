@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from unifi_map.client import Snapshot, unwrap
 from unifi_map.model import (
     UNKNOWN_UPLINK_ID,
@@ -434,3 +436,104 @@ class TestProtectCameras:
 
 def topo_camera_types(topo):
     return {n.hardware_type for n in topo.nodes.values() if n.hardware_type}
+
+
+class TestControllerGraphPlacement:
+    """stat/sta only reports an uplink when it is a UniFi device, so anything
+    behind a non-UniFi box needs the controller's own topology graph."""
+
+    def _snapshot(self, devices, clients, networkconf, topology=None):
+        payloads = {"device": devices, "client_active": clients, "networkconf": networkconf}
+        if topology is not None:
+            payloads["topology"] = topology
+        return Snapshot(payloads=payloads)
+
+    def test_a_client_behind_another_client_is_placed(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        # A NAS on a switch port, with a VM behind it. The VM has no sw_mac.
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:a1",
+                "hostname": "nas-host",
+                "is_wired": True,
+                "sw_mac": SWITCH_MAC,
+                "sw_port": 5,
+                "network_id": "net1",
+            }
+        )
+        clients["data"].append(
+            {"mac": "dd:ee:ff:00:00:a2", "hostname": "vm", "is_wired": True, "network_id": "net1"}
+        )
+        topology = {
+            "edges": [
+                {
+                    "downlinkMac": "DD:EE:FF:00:00:A2",
+                    "uplinkMac": "dd:ee:ff:00:00:a1",
+                    "type": "WIRED",
+                }
+            ]
+        }
+        topo = build_topology(self._snapshot(devices, clients, networkconf, topology))
+        parents = [e.dst for e in topo.edges if e.src == "dd:ee:ff:00:00:a2"]
+        assert parents == ["dd:ee:ff:00:00:a1"]
+        # Nothing is unplaced, so the placeholder never appears.
+        assert UNKNOWN_UPLINK_ID not in topo.nodes
+
+    def test_the_graph_marks_a_wireless_uplink(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:b1",
+                "hostname": "roamer",
+                "is_wired": False,
+                "network_id": "net1",
+            }
+        )
+        topology = {
+            "edges": [{"downlinkMac": "dd:ee:ff:00:00:b1", "uplinkMac": AP_MAC, "type": "WIRELESS"}]
+        }
+        topo = build_topology(self._snapshot(devices, clients, networkconf, topology))
+        edge = next(e for e in topo.edges if e.src == "dd:ee:ff:00:00:b1")
+        assert edge.wireless is True
+
+    def test_an_uplink_naming_an_unknown_node_still_falls_back(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:c1",
+                "hostname": "orphan",
+                "is_wired": True,
+                "network_id": "net1",
+            }
+        )
+        topology = {
+            "edges": [{"downlinkMac": "dd:ee:ff:00:00:c1", "uplinkMac": "99:99:99:99:99:99"}]
+        }
+        topo = build_topology(self._snapshot(devices, clients, networkconf, topology))
+        assert any(e.src == "dd:ee:ff:00:00:c1" and e.dst == UNKNOWN_UPLINK_ID for e in topo.edges)
+
+    def test_no_topology_payload_still_works(self, devices: dict, clients: dict, networkconf: dict):
+        clients["data"].append(
+            {"mac": "dd:ee:ff:00:00:d1", "hostname": "vm", "is_wired": True, "network_id": "net1"}
+        )
+        topo = build_topology(self._snapshot(devices, clients, networkconf))
+        assert UNKNOWN_UPLINK_ID in topo.nodes
+
+    @pytest.mark.parametrize(
+        "payload", [None, "nonsense", {}, {"edges": "no"}, {"edges": [1, 2]}, {"edges": [{}]}]
+    )
+    def test_a_malformed_graph_yields_nothing_rather_than_raising(self, payload):
+        from unifi_map.model import topology_uplinks
+
+        assert topology_uplinks(Snapshot(payloads={"topology": payload})) == {}
+
+    def test_a_self_referential_edge_is_ignored(self):
+        from unifi_map.model import topology_uplinks
+
+        snap = Snapshot(
+            payloads={"topology": {"edges": [{"downlinkMac": "aa:bb", "uplinkMac": "aa:bb"}]}}
+        )
+        assert topology_uplinks(snap) == {}

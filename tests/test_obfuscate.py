@@ -8,6 +8,7 @@ for every original value in all of it.
 
 from __future__ import annotations
 
+import re
 import shutil
 
 import pytest
@@ -26,6 +27,11 @@ needs_graphviz = pytest.mark.skipif(
 )
 
 STYLE = Style(theme=LIGHT, icons="builtin", layout="sane")
+
+
+def _without_embedded_images(text: str) -> str:
+    """Drop base64 image payloads, keeping everything a reader could see."""
+    return re.sub(r"data:image/[a-z+]+;?base64,[A-Za-z0-9+/=]+", "", text)
 
 
 @pytest.fixture
@@ -102,7 +108,11 @@ def test_nothing_leaks_into_any_output_format(identifying):
 
     failures = []
     for fmt, blob in outputs.items():
-        text = blob.decode("utf-8", errors="replace").lower()
+        # Strip embedded artwork first. Base64 is dense enough that a short
+        # needle turns up in it by chance, which makes the check cry wolf: a
+        # real render matched "Dell" inside an encoded PNG. What matters is
+        # readable text, not the bytes of a picture.
+        text = _without_embedded_images(blob.decode("utf-8", errors="replace")).lower()
         for secret in identifying["secrets"]:
             # Whole-word-ish: "lan" would otherwise match "vlan" or "planned".
             needle = secret.lower()

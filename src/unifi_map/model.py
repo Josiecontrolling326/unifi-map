@@ -209,6 +209,36 @@ def _norm_mac(value: Any) -> str | None:
     return mac or None
 
 
+def topology_uplinks(snapshot: Snapshot) -> dict[str, tuple[str, bool]]:
+    """Downlink MAC to (uplink MAC, wireless) from the controller's own graph.
+
+    `stat/sta` only reports a client's uplink when that uplink is a UniFi device,
+    so anything behind a non-UniFi box comes back with no `sw_mac` at all: VMs
+    and containers behind a NAS, or a client on an unmanaged switch. The console
+    still draws those correctly, because it uses this endpoint, where a CLIENT
+    can be another client's uplink.
+
+    Read defensively. This is a v2 endpoint whose structure has changed before,
+    so anything unexpected yields nothing rather than raising.
+    """
+    payload = snapshot.get("topology")
+    if not isinstance(payload, dict):
+        return {}
+    edges = payload.get("edges")
+    if not isinstance(edges, list):
+        return {}
+
+    uplinks: dict[str, tuple[str, bool]] = {}
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        down = _norm_mac(edge.get("downlinkMac"))
+        up = _norm_mac(edge.get("uplinkMac"))
+        if down and up and down != up:
+            uplinks[down] = (up, str(edge.get("type", "")).upper() == "WIRELESS")
+    return uplinks
+
+
 def protect_camera_macs(snapshot: Snapshot) -> set[str]:
     """MACs that UniFi Protect reports as cameras.
 
@@ -425,6 +455,7 @@ def build_topology(
             device_macs,
             build_fingerprints(snapshot),
             protect_camera_macs(snapshot),
+            topology_uplinks(snapshot),
         )
 
     return topo
@@ -436,9 +467,11 @@ def _add_clients(
     device_macs: set[str],
     fingerprints: dict[int, dict[str, str]] | None = None,
     camera_macs: set[str] | None = None,
+    uplinks: dict[str, tuple[str, bool]] | None = None,
 ) -> None:
     fingerprints = fingerprints or {}
     camera_macs = camera_macs or set()
+    unplaced: list[str] = []
     for client in unwrap(snapshot.get("client_active")):
         mac = _norm_mac(client.get("mac"))
         if not mac or mac in topo.nodes:
@@ -492,20 +525,38 @@ def _add_clients(
         if parent and parent in device_macs:
             topo.edges.append(Edge(src=mac, dst=parent, label=edge_label, wireless=wireless))
         else:
-            # The controller reports no sw_mac/ap_mac for some clients, notably
-            # VMs and containers behind another host, on a bridge or macvlan.
-            # Anchoring them to an explicit placeholder is honest about the gap;
-            # leaving them unlinked makes them look like a rendering bug, and
-            # guessing a parent would invent topology that does not exist.
-            if UNKNOWN_UPLINK_ID not in topo.nodes:
-                topo.add(
-                    Node(
-                        id=UNKNOWN_UPLINK_ID,
-                        label="Uplink not reported by controller",
-                        kind=Kind.UNKNOWN,
-                    )
+            # Deferred. The controller's own graph often knows this client's
+            # uplink even when stat/sta does not, and that uplink may be another
+            # client that has not been added yet.
+            unplaced.append(mac)
+
+    _place_remaining(topo, unplaced, uplinks or {})
+
+
+def _place_remaining(
+    topo: Topology, unplaced: list[str], uplinks: dict[str, tuple[str, bool]]
+) -> None:
+    """Attach clients that stat/sta could not place, using the controller graph.
+
+    Runs once every client exists, because an uplink is frequently another
+    client, such as a NAS host carrying its own VMs. Anything still unresolved
+    gets the explicit placeholder, which is honest about the gap rather than
+    guessing a plausible parent.
+    """
+    for mac in unplaced:
+        parent, wireless = uplinks.get(mac, (None, False))
+        if parent and parent in topo.nodes and parent != mac:
+            topo.edges.append(Edge(src=mac, dst=parent, wireless=wireless))
+            continue
+        if UNKNOWN_UPLINK_ID not in topo.nodes:
+            topo.add(
+                Node(
+                    id=UNKNOWN_UPLINK_ID,
+                    label="Uplink not reported by controller",
+                    kind=Kind.UNKNOWN,
                 )
-            topo.edges.append(Edge(src=mac, dst=UNKNOWN_UPLINK_ID))
+            )
+        topo.edges.append(Edge(src=mac, dst=UNKNOWN_UPLINK_ID))
 
 
 def filter_by_network(topo: Topology, network_name: str) -> Topology:

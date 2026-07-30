@@ -22,6 +22,16 @@ from there, so there is only ever one number to change.
   a "Stated in overrides" entry, so a claim is never mistaken for an observation.
 - `--version`.
 
+### Fixed
+
+- Clients behind a non-UniFi device are now placed correctly instead of being
+  collected under "Uplink not reported by controller". `stat/sta` only reports an
+  uplink when it is a UniFi device, so VMs and containers behind a NAS, or
+  clients on an unmanaged switch, appeared unplaced. The controller's own
+  topology graph knows where they are, and the console has been drawing them
+  correctly all along. On the network this was found on, that node disappeared
+  entirely.
+
 ## 0.1.0
 
 First versioned release. The tool was already public and working before this

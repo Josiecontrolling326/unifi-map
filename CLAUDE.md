@@ -118,6 +118,14 @@ controller JSON.
   `UVC-G3-FLEX` (Protect camera) and `UA-G3-Flex` (Access reader), so ties are
   broken with a device type from another app (Protect's camera list), never by
   preference or ordering. Ambiguous stays ambiguous and falls back to the glyph.
+- **`stat/sta` is not the whole graph.** It reports a client's uplink only when
+  that uplink is a UniFi device, so anything behind a non-UniFi box has no
+  `sw_mac`. `topology_uplinks()` reads the controller's own `v2` graph, where a
+  CLIENT can be another client's uplink, and `_place_remaining()` runs after every
+  client exists because an uplink is frequently another client. This was missed
+  for a long time: the placeholder node was blamed on the controller when the
+  data was in an endpoint already being fetched and ignored. Check the console
+  against the output before concluding the controller does not know something.
 - **Never invent topology.** Clients whose uplink the controller doesn't report
   get anchored to `UNKNOWN_UPLINK_ID`. Don't guess a plausible parent switch.
 - **`Topology.infrastructure` includes `Kind.UNKNOWN`** so that placeholder
