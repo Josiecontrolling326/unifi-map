@@ -1,0 +1,304 @@
+from __future__ import annotations
+
+import shutil
+
+import pytest
+
+from unifi_map.client import Snapshot
+from unifi_map.config import ConfigError, ExporterConfig, load_config
+from unifi_map.layout import compute_layout, parse_plain, run_dot
+from unifi_map.model import build_topology
+from unifi_map.render_dot import Style, render_dot
+from unifi_map.theme import LIGHT, get_theme
+
+needs_graphviz = pytest.mark.skipif(
+    shutil.which("dot") is None, reason="graphviz `dot` not installed"
+)
+
+SANE = Style(theme=LIGHT, icons="builtin", layout="sane")
+UNIFI = Style(theme=LIGHT, icons="builtin", layout="unifi")
+
+
+def test_dot_output_is_syntactically_parseable_by_graphviz(snapshot: Snapshot):
+    dot_source = render_dot(build_topology(snapshot), "test map", SANE)
+    assert dot_source.startswith("digraph unifi {")
+    assert dot_source.rstrip().endswith("}")
+
+
+def test_style_rejects_unknown_options():
+    with pytest.raises(ValueError, match="icons must be one of"):
+        Style(theme=LIGHT, icons="nope")
+    with pytest.raises(ValueError, match="layout must be one of"):
+        Style(theme=LIGHT, layout="nope")
+
+
+def test_get_theme_rejects_unknown_name():
+    with pytest.raises(ValueError, match="Unknown theme"):
+        get_theme("chartreuse")
+
+
+def test_dot_escapes_quotes_in_labels(networkconf: dict, devices: dict):
+    devices["data"][0]["name"] = 'Weird "quoted" name'
+    topo = build_topology(Snapshot(payloads={"device": devices, "networkconf": networkconf}))
+    dot_source = render_dot(topo, "t", SANE)
+    # The quote must be escaped, not terminate the DOT string early.
+    assert r"Weird \"quoted\" name" in dot_source
+
+
+def test_wireless_edges_are_dashed_for_greyscale_readability(snapshot: Snapshot):
+    dot_source = render_dot(build_topology(snapshot), "t", SANE)
+    assert [line for line in dot_source.splitlines() if "style=dashed" in line]
+
+
+def test_mac_colons_are_stripped_from_dot_identifiers(snapshot: Snapshot):
+    dot_source = render_dot(build_topology(snapshot), "t", SANE)
+    # A raw colon in an identifier would parse as a DOT port specifier.
+    assert '"n_aabbcc000001"' in dot_source
+
+
+class TestLayouts:
+    def test_sane_is_top_down_with_port_labels(self, snapshot: Snapshot):
+        dot_source = render_dot(build_topology(snapshot), "t", SANE)
+        assert "rankdir=TB;" in dot_source
+        assert "port 12" in dot_source
+
+    def test_unifi_is_left_right_without_port_labels(self, snapshot: Snapshot):
+        dot_source = render_dot(build_topology(snapshot), "t", UNIFI)
+        assert "rankdir=LR;" in dot_source
+        # The UniFi UI does not label links, and ortho routing misplaces labels.
+        assert "port 12" not in dot_source
+
+    def test_unifi_omits_title_and_legend_to_avoid_dead_space(self, snapshot: Snapshot):
+        # A graph label sets a minimum canvas width, padding a narrow map.
+        dot_source = render_dot(build_topology(snapshot), "My Map", UNIFI, subtitle="sub")
+        assert "labelloc=t;" not in dot_source
+        assert "cluster_legend" not in dot_source
+
+    def test_sane_includes_title_and_legend(self, snapshot: Snapshot):
+        dot_source = render_dot(build_topology(snapshot), "My Map", SANE, subtitle="sub")
+        assert "labelloc=t;" in dot_source
+        assert "My Map" in dot_source
+        assert "cluster_legend" in dot_source
+
+    def test_explicit_flags_override_layout_defaults(self, snapshot: Snapshot):
+        style = Style(theme=LIGHT, icons="builtin", layout="unifi", legend=True, title_block=True)
+        dot_source = render_dot(build_topology(snapshot), "T", style, subtitle="s")
+        assert "cluster_legend" in dot_source
+        assert "labelloc=t;" in dot_source
+
+    def test_unifi_layout_trims_canvas_padding(self, snapshot: Snapshot):
+        # Whether `unifi` ends up narrower than `sane` depends on the shape of
+        # the network (it does on a real one with many sibling clients, but not
+        # on a small fixture where tree depth dominates), so assert the thing
+        # that is actually guaranteed: no framing whitespace.
+        topo = build_topology(snapshot)
+        assert "pad=0.08;" in render_dot(topo, "t", UNIFI)
+        assert "pad=0.4;" in render_dot(topo, "t", SANE)
+
+    @needs_graphviz
+    def test_both_layouts_place_every_node(self, snapshot: Snapshot):
+        topo = build_topology(snapshot)
+        for style in (SANE, UNIFI):
+            layout = parse_plain(run_dot(render_dot(topo, "t", style), "plain").decode())
+            for node_id in topo.nodes:
+                assert "n_" + node_id.replace(":", "") in layout.nodes
+
+
+@needs_graphviz
+def test_graphviz_renders_svg(snapshot: Snapshot):
+    svg = run_dot(render_dot(build_topology(snapshot), "test map", SANE), "svg").decode()
+    assert "<svg" in svg
+    assert "Core Switch" in svg
+
+
+@needs_graphviz
+def test_svg_scales_without_a_fixed_pixel_ceiling(snapshot: Snapshot):
+    svg = run_dot(render_dot(build_topology(snapshot), "t", SANE), "svg").decode()
+    # viewBox is what lets the SVG zoom to any size with crisp labels.
+    assert "viewBox" in svg
+
+
+@needs_graphviz
+def test_layout_positions_every_node(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    layout = compute_layout(render_dot(topo, "t", SANE))
+    for node_id in topo.nodes:
+        assert "n_" + node_id.replace(":", "") in layout.nodes
+
+
+def test_parse_plain_flips_y_axis_into_screen_space():
+    plain = 'graph 1.0 10.0 8.0\nnode n_a 1.0 7.0 2.0 1.0 "A" solid box black white\nstop\n'
+    placed = parse_plain(plain).nodes["n_a"]
+    # Graphviz y=7 of an 8-inch-tall graph is near the top, so screen y is small.
+    assert placed.y == pytest.approx((8.0 - 7.0) * 72 - (1.0 * 72) / 2)
+    assert placed.x == pytest.approx(1.0 * 72 - (2.0 * 72) / 2)
+    # 2.0 inches wide at 72 points per inch.
+    assert placed.width == pytest.approx(144.0)
+    assert placed.height == pytest.approx(72.0)
+
+
+def test_parse_plain_handles_quoted_labels_with_spaces():
+    plain = 'graph 1.0 10.0 8.0\nnode n_a 1.0 7.0 2.0 1.0 "A B C" solid box black white\nstop\n'
+    assert "n_a" in parse_plain(plain).nodes
+
+
+class TestCredentials:
+    """API key only. Username and password support was removed deliberately."""
+
+    KEYS = (
+        "UNIFI_HOST",
+        "UNIFI_API_KEY",
+        "UDM_HOST",
+        "UDM_API_KEY",
+        "UNIFI_SITE",
+        "UDM_SITE",
+        "UNIFI_VERIFY_TLS",
+        "UDM_VERIFY_TLS",
+        "UNIFI_USERNAME",
+        "UNIFI_PASSWORD",
+        "UDM_USER",
+        "UDM_PASS",
+    )
+
+    def _clear(self, monkeypatch):
+        for key in self.KEYS:
+            monkeypatch.delenv(key, raising=False)
+
+    def _env(self, tmp_path, text):
+        path = tmp_path / "creds.env"
+        path.write_text(text)
+        return path
+
+    def test_host_and_key_are_enough(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        config = load_config(self._env(tmp_path, "UNIFI_HOST=h\nUNIFI_API_KEY=secret\n"))
+        assert config.host == "h"
+        assert config.api_key == "secret"
+        assert config.site == "default"
+        assert config.verify_tls is True
+
+    def test_udm_aliases_work(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        config = load_config(self._env(tmp_path, "UDM_HOST=h\nUDM_API_KEY=secret\nUDM_SITE=s\n"))
+        assert (config.host, config.api_key, config.site) == ("h", "secret", "s")
+
+    def test_unifi_names_win_over_udm_names(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        config = load_config(
+            self._env(
+                tmp_path,
+                "UDM_HOST=udm\nUNIFI_HOST=unifi\nUDM_API_KEY=udm-key\nUNIFI_API_KEY=unifi-key\n",
+            )
+        )
+        assert (config.host, config.api_key) == ("unifi", "unifi-key")
+
+    def test_real_environment_beats_the_file(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        monkeypatch.setenv("UNIFI_HOST", "from-env")
+        config = load_config(self._env(tmp_path, "UNIFI_HOST=from-file\nUNIFI_API_KEY=k\n"))
+        assert config.host == "from-env"
+
+    def test_a_username_and_password_are_not_credentials_any_more(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        env = self._env(tmp_path, "UNIFI_HOST=h\nUNIFI_USERNAME=u\nUNIFI_PASSWORD=p\n")
+        with pytest.raises(ConfigError, match="API key"):
+            load_config(env)
+
+    def test_missing_key_names_what_is_missing(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        with pytest.raises(ConfigError, match=r"API key \(UNIFI_API_KEY\)"):
+            load_config(self._env(tmp_path, "UNIFI_HOST=h\n"))
+
+    def test_missing_host_names_what_is_missing(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        with pytest.raises(ConfigError, match=r"host \(UNIFI_HOST\)"):
+            load_config(self._env(tmp_path, "UNIFI_API_KEY=k\n"))
+
+    def test_placeholder_key_is_rejected(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        with pytest.raises(ConfigError, match="CHANGE_ME"):
+            load_config(self._env(tmp_path, "UNIFI_HOST=h\nUNIFI_API_KEY=CHANGE_ME\n"))
+
+    def test_host_may_carry_a_port_and_assumes_https(self):
+        assert ExporterConfig("unifi.example.com:8443", "k").base_url == (
+            "https://unifi.example.com:8443"
+        )
+        assert ExporterConfig("http://1.2.3.4", "k").base_url == "http://1.2.3.4"
+        assert ExporterConfig("unifi.example.com/", "k").base_url == "https://unifi.example.com"
+
+    def test_verify_tls_accepts_words_and_a_ca_bundle_path(self, monkeypatch, tmp_path):
+        self._clear(monkeypatch)
+        base = "UNIFI_HOST=h\nUNIFI_API_KEY=k\n"
+        assert (
+            load_config(self._env(tmp_path, base + "UNIFI_VERIFY_TLS=false\n")).verify_tls is False
+        )
+        monkeypatch.delenv("UNIFI_VERIFY_TLS", raising=False)
+        bundle = "/etc/ssl/certs/private-ca.pem"
+        assert (
+            load_config(self._env(tmp_path, base + f"UNIFI_VERIFY_TLS={bundle}\n")).verify_tls
+            == bundle
+        )
+
+
+def test_client_sets_the_api_key_header_and_makes_no_request(tmp_path):
+    from unifi_map.client import UniFiClient
+    from unifi_map.config import ExporterConfig
+
+    client = UniFiClient(ExporterConfig("h", "secret"))
+    assert client.session.headers["X-API-KEY"] == "secret"
+    # No login/logout exist any more: nothing to call, nothing to expire.
+    assert not hasattr(client, "login")
+    assert not hasattr(client, "logout")
+
+
+class TestLegendHonesty:
+    """The legend must describe only what the diagram actually encodes."""
+
+    def _legend_text(self, topo, style, icons=None):
+        dot = render_dot(topo, "t", style, icons)
+        start = dot.index("cluster_legend")
+        return dot[start:]
+
+    def test_shapes_only_render_lists_every_role(self, snapshot: Snapshot):
+        topo = build_topology(snapshot)
+        legend = self._legend_text(topo, SANE)
+        # Nothing has artwork, so every role really is a coloured shape.
+        assert "Switch" in legend
+        assert "Gateway" in legend
+        assert "shown by its artwork" not in legend
+
+    def test_roles_drawn_as_artwork_get_no_swatch(self, snapshot: Snapshot, fake_icon):
+        topo = build_topology(snapshot)
+        style = Style(theme=LIGHT, icons="unifi", layout="sane")
+        # Give every node artwork: no role swatch may remain, because artwork
+        # nodes have no border or fill to carry an accent colour.
+        icons = dict.fromkeys(topo.nodes, fake_icon)
+        legend = self._legend_text(topo, style, icons)
+        assert "shown by its artwork" in legend
+        assert "Without artwork" not in legend
+        for role in ("Gateway", "Switch", "Access point"):
+            assert role not in legend, f"{role} swatch is a lie when it has artwork"
+
+    def test_mixed_render_separates_the_two(self, snapshot: Snapshot, fake_icon):
+        topo = build_topology(snapshot)
+        style = Style(theme=LIGHT, icons="unifi", layout="sane")
+        # The access point is the only node of its role in the fixture, so
+        # covering it removes that role entirely. The fixture has two switches,
+        # one of them offline, which is why picking a switch here would not.
+        legend = self._legend_text(topo, style, {"aa:bb:cc:00:00:03": fake_icon})
+        assert "shown by its artwork" in legend
+        assert "Without artwork" in legend
+        assert "Access point" not in legend, "role with artwork must lose its swatch"
+        # Roles still drawn as shapes keep theirs.
+        assert "Gateway" in legend
+        assert "Switch" in legend
+
+    def test_client_network_swatch_is_labelled_by_how_it_appears(
+        self, snapshot: Snapshot, fake_icon
+    ):
+        topo = build_topology(snapshot)
+        style = Style(theme=LIGHT, icons="unifi", layout="sane")
+        icons = dict.fromkeys(topo.nodes, fake_icon)
+        # With artwork the VLAN colour is the label text, not a border.
+        assert "Client network (label colour)" in self._legend_text(topo, style, icons)
+        assert "Client network (label colour)" not in self._legend_text(topo, SANE)

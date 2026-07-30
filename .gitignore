@@ -1,0 +1,26 @@
+.env
+*.env
+!.env.example
+
+# Runtime caches. Never commit either of these.
+#
+# cache/ holds controller snapshots: a MAC, hostname and IP inventory of every
+# device on the network. Regenerable with `unifi-map fetch`.
+#
+# It also holds Ubiquiti's device catalog and downloaded product artwork.
+# That artwork is Ubiquiti's intellectual property and is deliberately NOT
+# vendored into this repository; it is fetched at runtime and cached locally.
+cache/
+out/
+
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Editor scratch files
+*.sw[a-p]
+*~
+.*.swp

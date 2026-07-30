@@ -1,0 +1,436 @@
+from __future__ import annotations
+
+from unifi_map.client import Snapshot, unwrap
+from unifi_map.model import (
+    UNKNOWN_UPLINK_ID,
+    Kind,
+    build_topology,
+    client_networks,
+    filter_by_network,
+)
+
+from .conftest import AP_MAC, GATEWAY_MAC, SPARE_SWITCH_MAC, SWITCH_MAC
+
+
+def test_unwrap_handles_both_response_shapes():
+    assert unwrap({"data": [{"a": 1}]}) == [{"a": 1}]
+    assert unwrap([{"a": 1}]) == [{"a": 1}]
+
+
+def test_unwrap_tolerates_unexpected_shapes():
+    # A controller version change must thin the diagram, not raise.
+    assert unwrap(None) == []
+    assert unwrap({"meta": {"rc": "error"}}) == []
+    assert unwrap("nonsense") == []
+    assert unwrap([1, 2, {"a": 1}]) == [{"a": 1}]
+
+
+def test_devices_are_classified_by_type_prefix(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    assert topo.nodes[GATEWAY_MAC].kind is Kind.GATEWAY
+    assert topo.nodes[SWITCH_MAC].kind is Kind.SWITCH
+    assert topo.nodes[AP_MAC].kind is Kind.AP
+
+
+def test_uplinks_become_edges_with_port_labels(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    edges = {(e.src, e.dst): e for e in topo.edges}
+    assert edges[(SWITCH_MAC, GATEWAY_MAC)].label == "port 9"
+    assert edges[(AP_MAC, SWITCH_MAC)].label == "port 5"
+
+
+def test_gateway_gets_an_internet_node(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    assert topo.nodes["internet"].kind is Kind.INTERNET
+    assert any(e.src == GATEWAY_MAC and e.dst == "internet" for e in topo.edges)
+
+
+def test_offline_device_is_kept_and_flagged(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    assert topo.nodes[SPARE_SWITCH_MAC].offline is True
+    assert topo.nodes[SWITCH_MAC].offline is False
+
+
+def test_clients_attach_to_their_switch_port_and_ap(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    edges = {(e.src, e.dst): e for e in topo.edges}
+
+    wired = edges[("dd:ee:ff:00:00:01", SWITCH_MAC)]
+    assert wired.label == "port 12"
+    assert wired.wireless is False
+
+    wireless = edges[("dd:ee:ff:00:00:03", AP_MAC)]
+    assert wireless.wireless is True
+
+
+def test_client_networks_resolve_via_network_id(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    nas = topo.nodes["dd:ee:ff:00:00:01"]
+    assert nas.network == "servers"
+    assert nas.vlan == 2
+
+
+def test_nameless_client_falls_back_to_oui(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    assert topo.nodes["dd:ee:ff:00:00:04"].label == "Espressif 000004"
+
+
+def test_long_vendor_labels_are_shortened(devices: dict, clients: dict, networkconf: dict):
+    clients["data"].append(
+        {
+            "mac": "dd:ee:ff:00:00:aa",
+            "oui": "Motorola (Wuhan) Mobility Technologies Communication Co., Ltd.",
+            "is_wired": False,
+            "ap_mac": AP_MAC,
+            "network_id": "net1",
+        }
+    )
+    topo = build_topology(
+        Snapshot(payloads={"device": devices, "client_active": clients, "networkconf": networkconf})
+    )
+    label = topo.nodes["dd:ee:ff:00:00:aa"].label
+    # Must stay short enough not to distort layout, and keep the MAC tail.
+    assert len(label) <= 32, label
+    assert label.endswith("0000AA")
+
+
+def test_shortening_leaves_reasonable_names_untouched(
+    devices: dict, clients: dict, networkconf: dict
+):
+    clients["data"].append(
+        {
+            "mac": "dd:ee:ff:00:00:bb",
+            "hostname": "living-room-tv",
+            "is_wired": False,
+            "ap_mac": AP_MAC,
+            "network_id": "net1",
+        }
+    )
+    topo = build_topology(
+        Snapshot(payloads={"device": devices, "client_active": clients, "networkconf": networkconf})
+    )
+    assert topo.nodes["dd:ee:ff:00:00:bb"].label == "living-room-tv"
+
+
+def test_no_clients_flag_excludes_clients(snapshot: Snapshot):
+    topo = build_topology(snapshot, include_clients=False)
+    kinds = {n.kind for n in topo.nodes.values()}
+    assert Kind.WIRED_CLIENT not in kinds
+    assert Kind.WIRELESS_CLIENT not in kinds
+    assert Kind.SWITCH in kinds
+
+
+def test_filter_by_network_keeps_all_infrastructure(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    view = filter_by_network(topo, "servers")
+
+    # Infrastructure is retained so each slice stays anchored to one skeleton.
+    assert SWITCH_MAC in view.nodes
+    assert AP_MAC in view.nodes
+    assert "dd:ee:ff:00:00:01" in view.nodes
+    # Clients on other networks are dropped.
+    assert "dd:ee:ff:00:00:03" not in view.nodes
+
+
+def test_filter_drops_edges_with_missing_endpoints(snapshot: Snapshot):
+    view = filter_by_network(build_topology(snapshot), "servers")
+    for edge in view.edges:
+        assert edge.src in view.nodes
+        assert edge.dst in view.nodes
+
+
+def test_client_without_reported_uplink_is_anchored_not_orphaned(
+    devices: dict, clients: dict, networkconf: dict
+):
+    # A VM behind another host: the controller reports neither sw_mac nor ap_mac.
+    clients["data"].append(
+        {
+            "mac": "dd:ee:ff:00:00:99",
+            "hostname": "runner",
+            "is_wired": True,
+            "ip": "10.0.20.12",
+            "network_id": "net1",
+        }
+    )
+    topo = build_topology(
+        Snapshot(payloads={"device": devices, "client_active": clients, "networkconf": networkconf})
+    )
+
+    assert UNKNOWN_UPLINK_ID in topo.nodes
+    linked = {e.src for e in topo.edges} | {e.dst for e in topo.edges}
+    assert "dd:ee:ff:00:00:99" in linked, "orphan must be anchored, not left floating"
+    assert any(e.src == "dd:ee:ff:00:00:99" and e.dst == UNKNOWN_UPLINK_ID for e in topo.edges)
+
+
+def test_unknown_uplink_placeholder_is_absent_when_every_client_resolves(snapshot: Snapshot):
+    # No placeholder should appear just because the code can create one.
+    assert UNKNOWN_UPLINK_ID not in build_topology(snapshot).nodes
+
+
+def test_unknown_uplink_survives_per_network_filtering(
+    devices: dict, clients: dict, networkconf: dict
+):
+    clients["data"].append(
+        {
+            "mac": "dd:ee:ff:00:00:99",
+            "hostname": "runner",
+            "is_wired": True,
+            "ip": "10.0.20.12",
+            "network_id": "net1",
+        }
+    )
+    topo = build_topology(
+        Snapshot(payloads={"device": devices, "client_active": clients, "networkconf": networkconf})
+    )
+    view = filter_by_network(topo, "lan")
+    assert UNKNOWN_UPLINK_ID in view.nodes
+    linked = {e.src for e in view.edges} | {e.dst for e in view.edges}
+    assert "dd:ee:ff:00:00:99" in linked
+
+
+def test_client_networks_lists_only_networks_with_clients(snapshot: Snapshot):
+    topo = build_topology(snapshot)
+    assert client_networks(topo) == ["iot", "lan", "servers"]
+
+
+class TestShowOffline:
+    def test_offline_devices_are_kept_by_default_at_the_api_level(self, snapshot: Snapshot):
+        topo = build_topology(snapshot)
+        assert SPARE_SWITCH_MAC in topo.nodes
+        assert topo.nodes[SPARE_SWITCH_MAC].offline is True
+
+    def test_excluding_offline_drops_the_node_entirely(self, snapshot: Snapshot):
+        topo = build_topology(snapshot, include_offline=False)
+        assert SPARE_SWITCH_MAC not in topo.nodes
+        assert not any(n.offline for n in topo.nodes.values())
+        # Connected hardware is untouched.
+        assert SWITCH_MAC in topo.nodes
+
+    def test_excluding_offline_leaves_no_dangling_edges(self, snapshot: Snapshot):
+        # Regression: the uplink pass used to index topo.nodes for every device
+        # in the payload, including ones it had just skipped, and raised KeyError.
+        topo = build_topology(snapshot, include_offline=False)
+        for edge in topo.edges:
+            assert edge.src in topo.nodes
+            assert edge.dst in topo.nodes
+
+    def test_an_offline_device_with_an_uplink_is_skipped_cleanly(
+        self, devices: dict, networkconf: dict
+    ):
+        # The spare switch in the fixture has no uplink; give one an uplink too,
+        # so the skip path is exercised with an edge that must not be created.
+        devices["data"].append(
+            {
+                "mac": "aa:bb:cc:00:00:09",
+                "name": "Retired AP",
+                "type": "uap",
+                "state": 0,
+                "uplink": {"uplink_mac": SWITCH_MAC, "uplink_remote_port": 22, "type": "wire"},
+            }
+        )
+        topo = build_topology(
+            Snapshot(payloads={"device": devices, "networkconf": networkconf}),
+            include_offline=False,
+        )
+        assert "aa:bb:cc:00:00:09" not in topo.nodes
+        assert not any(e.src == "aa:bb:cc:00:00:09" for e in topo.edges)
+
+    def test_clients_on_an_excluded_switch_are_anchored_not_dropped(self, snapshot: Snapshot):
+        # A client whose switch vanished still exists on the network, so it must
+        # stay on the map rather than silently disappear with the switch.
+        topo = build_topology(snapshot, include_offline=False)
+        assert "dd:ee:ff:00:00:01" in topo.nodes
+
+
+class TestClientFingerprints:
+    def _snapshot(self, devices, clients, networkconf, fingerprint):
+        return Snapshot(
+            payloads={
+                "device": devices,
+                "client_active": clients,
+                "networkconf": networkconf,
+                "fingerprint": fingerprint,
+            }
+        )
+
+    def test_glyph_name_mirrors_the_unifi_ui_classes(self, snapshot: Snapshot):
+        topo = build_topology(snapshot)
+        # Wired non-guest client.
+        assert topo.nodes["dd:ee:ff:00:00:01"].glyph_name == "user-wired"
+        # Wireless non-guest client.
+        assert topo.nodes["dd:ee:ff:00:00:03"].glyph_name == "user-wireless"
+        # Infrastructure has no client glyph.
+        assert topo.nodes[SWITCH_MAC].glyph_name is None
+
+    def test_guest_clients_get_the_guest_glyph(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:77",
+                "hostname": "visitor",
+                "is_wired": False,
+                "is_guest": True,
+                "ap_mac": AP_MAC,
+                "network_id": "net1",
+            }
+        )
+        topo = build_topology(self._snapshot(devices, clients, networkconf, {}))
+        assert topo.nodes["dd:ee:ff:00:00:77"].glyph_name == "guest-wireless"
+
+    def test_fingerprint_names_an_otherwise_unnamed_client(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        fingerprint = {
+            "dev_ids": {"4425": {"name": "Nest Audio", "family_id": "1", "dev_type_id": "2"}},
+            "family_ids": {"1": "Multimedia Device"},
+            "dev_type_ids": {"2": "Soundbar"},
+        }
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:88",
+                "oui": "Google",
+                "is_wired": False,
+                "ap_mac": AP_MAC,
+                "network_id": "net1",
+                "dev_id": 4425,
+            }
+        )
+        topo = build_topology(self._snapshot(devices, clients, networkconf, fingerprint))
+        node = topo.nodes["dd:ee:ff:00:00:88"]
+        assert node.label == "Nest Audio"
+        assert node.detail == "Soundbar"
+        assert node.dev_id == 4425
+
+    def test_a_user_assigned_name_beats_the_fingerprint_name(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        fingerprint = {"dev_ids": {"4425": {"name": "Nest Audio"}}}
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:89",
+                "name": "kitchen speaker",
+                "is_wired": False,
+                "ap_mac": AP_MAC,
+                "network_id": "net1",
+                "dev_id": 4425,
+            }
+        )
+        topo = build_topology(self._snapshot(devices, clients, networkconf, fingerprint))
+        assert topo.nodes["dd:ee:ff:00:00:89"].label == "kitchen speaker"
+
+    def test_dev_id_override_wins_over_dev_id(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        # The override is the user's correction in the UI for a wrong fingerprint.
+        fingerprint = {"dev_ids": {"111": {"name": "Wrong"}, "222": {"name": "Right"}}}
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:90",
+                "is_wired": True,
+                "sw_mac": SWITCH_MAC,
+                "sw_port": 4,
+                "network_id": "net1",
+                "dev_id": 111,
+                "dev_id_override": 222,
+            }
+        )
+        topo = build_topology(self._snapshot(devices, clients, networkconf, fingerprint))
+        node = topo.nodes["dd:ee:ff:00:00:90"]
+        assert node.dev_id == 222
+        assert node.label == "Right"
+
+    def test_missing_fingerprint_payload_is_harmless(self, snapshot: Snapshot):
+        topo = build_topology(snapshot)
+        assert topo.nodes["dd:ee:ff:00:00:01"].dev_id is None
+
+
+class TestWanInfo:
+    def test_isp_name_labels_the_internet_node(self, devices: dict, networkconf: dict):
+        health = {
+            "data": [
+                {"subsystem": "wlan", "status": "ok"},
+                {"subsystem": "wan", "isp_name": "Example ISP", "wan_ip": "203.0.113.10"},
+            ]
+        }
+        topo = build_topology(
+            Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+        )
+        node = topo.nodes["internet"]
+        assert node.label == "Example ISP"
+        assert node.ip == "203.0.113.10"
+
+    def test_falls_back_to_isp_organization(self, devices: dict, networkconf: dict):
+        health = {"data": [{"subsystem": "wan", "isp_organization": "Example ISP, Inc."}]}
+        topo = build_topology(
+            Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+        )
+        assert topo.nodes["internet"].label == "Example ISP, Inc."
+
+    def test_no_health_payload_keeps_the_generic_label(self, snapshot: Snapshot):
+        assert build_topology(snapshot).nodes["internet"].label == "Internet"
+
+    def test_wan_subsystem_absent_keeps_the_generic_label(self, devices: dict, networkconf: dict):
+        health = {"data": [{"subsystem": "wlan", "status": "ok"}]}
+        topo = build_topology(
+            Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+        )
+        assert topo.nodes["internet"].label == "Internet"
+
+
+class TestProtectCameras:
+    def test_unpunctuated_protect_macs_are_normalised(self):
+        from unifi_map.model import protect_camera_macs
+
+        snap = Snapshot(payloads={"protect_cameras": [{"mac": "E438830B5F76", "name": "G3 Flex"}]})
+        assert protect_camera_macs(snap) == {"e4:38:83:0b:5f:76"}
+
+    def test_wrapped_and_missing_payloads_are_tolerated(self):
+        from unifi_map.model import protect_camera_macs
+
+        assert protect_camera_macs(Snapshot(payloads={})) == set()
+        assert protect_camera_macs(Snapshot(payloads={"protect_cameras": None})) == set()
+        # Malformed MACs are skipped rather than producing junk keys.
+        assert (
+            protect_camera_macs(Snapshot(payloads={"protect_cameras": [{"mac": "nope"}]})) == set()
+        )
+        wrapped = Snapshot(payloads={"protect_cameras": {"data": [{"mac": "E438830B5F76"}]}})
+        assert wrapped.get("protect_cameras") is not None
+        assert protect_camera_macs(wrapped) == {"e4:38:83:0b:5f:76"}
+
+    def test_a_protect_camera_client_is_flagged(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        clients["data"].append(
+            {
+                "mac": "e4:38:83:0b:5f:76",
+                "hostname": "g3-flex",
+                "oui": "Ubiquiti Inc",
+                "is_wired": True,
+                "sw_mac": SWITCH_MAC,
+                "sw_port": 7,
+                "network_id": "net1",
+            }
+        )
+        topo = build_topology(
+            Snapshot(
+                payloads={
+                    "device": devices,
+                    "client_active": clients,
+                    "networkconf": networkconf,
+                    "protect_cameras": [{"mac": "E438830B5F76"}],
+                }
+            )
+        )
+        node = topo.nodes["e4:38:83:0b:5f:76"]
+        assert node.hardware_type == "camera"
+        assert node.oui == "Ubiquiti Inc"
+        # No fingerprint, so artwork has to come from the hardware catalog.
+        assert node.dev_id is None
+
+    def test_a_non_protect_client_is_not_flagged(self, snapshot: Snapshot):
+        assert topo_camera_types(build_topology(snapshot)) == set()
+
+
+def topo_camera_types(topo):
+    return {n.hardware_type for n in topo.nodes.values() if n.hardware_type}

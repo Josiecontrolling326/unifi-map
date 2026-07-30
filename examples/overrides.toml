@@ -1,0 +1,81 @@
+# Manual topology overrides.
+#
+# NOT YET APPLIED. The schema and loader are implemented and tested; wiring them
+# into rendering is still to do. See docs/overrides.md. This file is the
+# reference for the intended format.
+#
+# Selectors (`from`, `to`, `guest`, `host`) accept a MAC, an IP, or a
+# hostname/device name as shown on the map.
+
+# --- Links the controller cannot see -----------------------------------------
+# A direct connection the controller does not participate in. Without this the
+# NAS can only be anchored to "uplink not reported by controller".
+
+[[link]]
+from = "nas"
+to = "Rack Switch"
+port = 10
+speed = "10G"
+note = "Direct SFP+ DAC"
+
+# Ports may be written unquoted; they are normalised to strings.
+[[link]]
+from = "media-player"
+to = "Core Switch"
+port = 9
+
+# A point-to-point wireless bridge, which renders dashed.
+# [[link]]
+# from = "Shed AP"
+# to = "Garage"
+# wireless = true
+# note = "Wireless uplink"
+
+# --- Fixing what the controller got wrong -------------------------------------
+# Ubiquiti's fingerprint database is confident and occasionally wrong, which
+# gives you both the wrong name and the wrong picture. `icon` is a file you
+# supply; relative paths resolve against this file's directory, so a config plus
+# an assets folder travel together. Nothing is downloaded for it.
+
+[[node]]
+match = "10.0.30.22"
+name = "Network Bidet"
+icon = "assets/bidet.png"
+note = "UniFi is convinced this is a smart toothbrush"
+
+# A rename on its own is fine; so is artwork on its own.
+[[node]]
+match = "02:00:00:00:30:03"
+name = "Garage freezer"
+
+# --- Hiding things ------------------------------------------------------------
+# Two reasons to hide something. Either it is noise (an access point whose radios
+# you disabled on purpose is still "online" to the controller, so
+# --show-offline no will not remove it), or you simply do not want it on a map you
+# are about to hand to somebody else, such as your super-secret naughty server.
+#
+# Only leaf nodes can be hidden. Hiding a switch or an access point would orphan
+# everything behind it, so that is refused rather than guessed at.
+
+[[node]]
+match = "10.0.20.99"
+hide = true
+note = "super-secret naughty server, not for the group chat"
+
+[[node]]
+match = "Garage"
+hide = true
+note = "radios disabled on purpose, online but doing nothing"
+
+# --- Things running inside other things ---------------------------------------
+# VMs and containers appear as their own clients with no hint of where they live.
+
+[[hosted]]
+guest = "build-runner"
+host = "hypervisor"
+note = "VM"
+
+[[hosted]]
+guest = "reverse-proxy"
+host = "hypervisor"
+note = "container"

@@ -1,0 +1,193 @@
+{
+  "data": [
+    {
+      "dev_id": 2799,
+      "hostname": "nas",
+      "ip": "10.0.20.10",
+      "is_wired": true,
+      "mac": "02:00:00:00:10:01",
+      "network_id": "net-servers",
+      "sw_mac": "02:00:00:00:01:03",
+      "sw_port": 1
+    },
+    {
+      "hostname": "hypervisor",
+      "ip": "10.0.20.11",
+      "is_wired": true,
+      "mac": "02:00:00:00:10:02",
+      "network_id": "net-servers",
+      "sw_mac": "02:00:00:00:01:03",
+      "sw_port": 3
+    },
+    {
+      "hostname": "build-runner",
+      "ip": "10.0.20.12",
+      "is_wired": true,
+      "mac": "02:00:00:00:10:03",
+      "network_id": "net-servers"
+    },
+    {
+      "hostname": "reverse-proxy",
+      "ip": "10.0.20.13",
+      "is_wired": true,
+      "mac": "02:00:00:00:10:04",
+      "network_id": "net-servers"
+    },
+    {
+      "dev_id": 4207,
+      "hostname": "workstation",
+      "ip": "10.0.0.50",
+      "is_wired": true,
+      "mac": "02:00:00:00:11:01",
+      "network_id": "net-lan",
+      "sw_mac": "02:00:00:00:01:04",
+      "sw_port": 2
+    },
+    {
+      "hostname": "printer",
+      "ip": "10.0.0.51",
+      "is_wired": true,
+      "mac": "02:00:00:00:11:02",
+      "network_id": "net-lan",
+      "sw_mac": "02:00:00:00:01:04",
+      "sw_port": 3
+    },
+    {
+      "ip": "10.0.0.52",
+      "is_wired": true,
+      "mac": "02:00:00:00:11:03",
+      "network_id": "net-lan",
+      "oui": "Intel Corporate",
+      "sw_mac": "02:00:00:00:01:04",
+      "sw_port": 4
+    },
+    {
+      "dev_id": 27,
+      "hostname": "media-player",
+      "ip": "10.0.0.53",
+      "is_wired": true,
+      "mac": "02:00:00:00:12:01",
+      "network_id": "net-lan",
+      "sw_mac": "02:00:00:00:01:02",
+      "sw_port": 9
+    },
+    {
+      "ap_mac": "02:00:00:00:02:01",
+      "dev_id": 5346,
+      "essid": "demo-wifi",
+      "hostname": "phone-a",
+      "ip": "10.0.0.101",
+      "is_wired": false,
+      "mac": "02:00:00:00:20:01",
+      "network_id": "net-lan",
+      "radio_name": "ac"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:02",
+      "essid": "demo-wifi",
+      "hostname": "phone-b",
+      "ip": "10.0.0.102",
+      "is_wired": false,
+      "mac": "02:00:00:00:20:02",
+      "network_id": "net-lan",
+      "radio_name": "ac"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:04",
+      "dev_id": 4207,
+      "essid": "demo-wifi",
+      "hostname": "laptop",
+      "ip": "10.0.0.103",
+      "is_wired": false,
+      "mac": "02:00:00:00:20:03",
+      "network_id": "net-lan",
+      "radio_name": "ax"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:01",
+      "essid": "demo-wifi",
+      "hostname": "tablet",
+      "ip": "10.0.0.104",
+      "is_wired": false,
+      "mac": "02:00:00:00:20:04",
+      "network_id": "net-lan",
+      "radio_name": "ac"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:01",
+      "dev_id": 3166,
+      "essid": "demo-wifi",
+      "hostname": "living-room-tv",
+      "ip": "10.0.0.105",
+      "is_wired": false,
+      "mac": "02:00:00:00:21:01",
+      "network_id": "net-lan",
+      "radio_name": "ng"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:01",
+      "dev_id": 2024,
+      "essid": "demo-iot",
+      "hostname": "thermostat",
+      "ip": "10.0.30.11",
+      "is_wired": false,
+      "mac": "02:00:00:00:30:01",
+      "network_id": "net-iot",
+      "radio_name": "ng"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:03",
+      "essid": "demo-iot",
+      "hostname": "doorbell",
+      "ip": "10.0.30.12",
+      "is_wired": false,
+      "mac": "02:00:00:00:30:02",
+      "network_id": "net-iot",
+      "radio_name": "ng"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:01",
+      "essid": "demo-iot",
+      "ip": "10.0.30.13",
+      "is_wired": false,
+      "mac": "02:00:00:00:30:03",
+      "network_id": "net-iot",
+      "oui": "Espressif Inc.",
+      "radio_name": "ng"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:02",
+      "dev_id": 4425,
+      "essid": "demo-iot",
+      "hostname": "smart-speaker",
+      "ip": "10.0.30.14",
+      "is_wired": false,
+      "mac": "02:00:00:00:30:04",
+      "network_id": "net-iot",
+      "radio_name": "ng"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:02",
+      "essid": "demo-iot",
+      "ip": "10.0.30.15",
+      "is_wired": false,
+      "mac": "02:00:00:00:30:05",
+      "network_id": "net-iot",
+      "oui": "Tuya Smart Inc.",
+      "radio_name": "ng"
+    },
+    {
+      "ap_mac": "02:00:00:00:02:01",
+      "essid": "demo-guest",
+      "hostname": "guest-phone",
+      "ip": "10.0.100.20",
+      "is_wired": false,
+      "mac": "02:00:00:00:40:01",
+      "network_id": "net-guest",
+      "radio_name": "ng"
+    }
+  ],
+  "meta": {
+    "rc": "ok"
+  }
+}

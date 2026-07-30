@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/gitkodak/unifi-map/security/policy
+    about: Please report anything that could expose someone's network privately, not here.

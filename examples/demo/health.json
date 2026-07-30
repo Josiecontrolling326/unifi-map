@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "isp_name": "Example ISP",
+      "isp_organization": "Example ISP, Inc.",
+      "status": "ok",
+      "subsystem": "wan",
+      "wan_ip": "203.0.113.10"
+    },
+    {
+      "status": "ok",
+      "subsystem": "wlan"
+    }
+  ],
+  "meta": {
+    "rc": "ok"
+  }
+}

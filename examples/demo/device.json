@@ -1,0 +1,128 @@
+{
+  "data": [
+    {
+      "ip": "10.0.0.1",
+      "mac": "02:00:00:00:01:01",
+      "model": "UDMPROMAX",
+      "name": "gateway",
+      "state": 1,
+      "sysid": 59954,
+      "type": "udm"
+    },
+    {
+      "ip": "10.0.0.2",
+      "mac": "02:00:00:00:01:02",
+      "model": "USWED72",
+      "name": "Core Switch",
+      "state": 1,
+      "sysid": 60786,
+      "type": "usw",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:01",
+        "uplink_remote_port": 25
+      }
+    },
+    {
+      "ip": "10.0.0.3",
+      "mac": "02:00:00:00:01:03",
+      "model": "US624P",
+      "name": "Rack Switch",
+      "state": 1,
+      "sysid": 60216,
+      "type": "usw",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:02",
+        "uplink_remote_port": 24
+      }
+    },
+    {
+      "ip": "10.0.0.4",
+      "mac": "02:00:00:00:01:04",
+      "model": "USMINI",
+      "name": "Desk Switch",
+      "state": 1,
+      "sysid": 60720,
+      "type": "usw",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:02",
+        "uplink_remote_port": 12
+      }
+    },
+    {
+      "ip": "10.0.0.11",
+      "mac": "02:00:00:00:02:01",
+      "model": "UAL6",
+      "name": "Living Room",
+      "state": 1,
+      "sysid": 42514,
+      "type": "uap",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:02",
+        "uplink_remote_port": 5
+      }
+    },
+    {
+      "ip": "10.0.0.12",
+      "mac": "02:00:00:00:02:02",
+      "model": "UAL6",
+      "name": "Bedroom",
+      "state": 1,
+      "sysid": 42514,
+      "type": "uap",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:02",
+        "uplink_remote_port": 6
+      }
+    },
+    {
+      "ip": "10.0.0.13",
+      "mac": "02:00:00:00:02:03",
+      "model": "UAL6",
+      "name": "Garage",
+      "state": 0,
+      "sysid": 42514,
+      "type": "uap",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:02",
+        "uplink_remote_port": 7
+      }
+    },
+    {
+      "ip": "10.0.0.14",
+      "mac": "02:00:00:00:02:04",
+      "model": "U7PRO",
+      "name": "Office",
+      "state": 1,
+      "sysid": 42626,
+      "type": "uap",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:03",
+        "uplink_remote_port": 8
+      }
+    },
+    {
+      "ip": "10.0.0.20",
+      "mac": "02:00:00:00:03:01",
+      "model": "USWDA23",
+      "name": "Rack UPS",
+      "state": 1,
+      "sysid": 55843,
+      "type": "usw",
+      "uplink": {
+        "type": "wire",
+        "uplink_mac": "02:00:00:00:01:03",
+        "uplink_remote_port": 2
+      }
+    }
+  ],
+  "meta": {
+    "rc": "ok"
+  }
+}

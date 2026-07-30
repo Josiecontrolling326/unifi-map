@@ -1,0 +1,65 @@
+name: A device is drawn wrong
+description: Wrong artwork, wrong name, or a missing or incorrect link
+labels: ["rendering"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some of this is expected and already known, so it is worth checking first.
+
+        Ubiquiti's fingerprint database is confidently wrong about some devices,
+        and this tool draws what the database says. A phone identified as a
+        kitchen appliance is upstream data, not a rendering bug. Manual overrides
+        for exactly this are designed but not implemented yet, see
+        `docs/overrides.md`. An issue is still useful, because it tells us which
+        cases matter most.
+
+        Likewise, a link the controller does not report cannot be drawn. Those
+        clients are anchored to "Uplink not reported by controller" on purpose,
+        rather than guessed at.
+
+  - type: textarea
+    id: device
+    attributes:
+      label: What is the device, and how is it drawn
+      description: What it actually is, and what appeared on the map.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong
+      options:
+        - Wrong artwork
+        - No artwork, generic glyph or plain shape
+        - Wrong name
+        - Missing or wrong link to its parent
+        - Appears when it should not, or is missing entirely
+    validations:
+      required: true
+
+  - type: input
+    id: hostname
+    attributes:
+      label: Hostname as shown in the UniFi UI
+      description: Redact if you would rather not share it.
+
+  - type: dropdown
+    id: ubiquiti
+    attributes:
+      label: Is it Ubiquiti hardware
+      description: UniFi gear appearing as a client is matched differently from other clients.
+      options:
+        - "No"
+        - "Yes, UniFi Network gear"
+        - "Yes, Protect, Access or another UniFi app"
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: unifi_ui
+    attributes:
+      label: How does the UniFi UI itself draw it
+      description: If the console gets it right and this tool does not, that is a real bug.

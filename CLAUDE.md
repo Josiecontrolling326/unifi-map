@@ -1,0 +1,371 @@
+# CLAUDE.md: unifi-map
+
+Pulls the UniFi topology from a controller's JSON API and renders it as vector
+diagrams and editable draw.io files, using real Ubiquiti product artwork. See
+`README.md` for usage; this covers what's easy to get wrong when changing it.
+
+This is intended to be published publicly, so keep it site-agnostic and
+non-identifying: no real hostnames, subnets, SSIDs, device addresses or
+site-specific defaults in code, tests, docs or fixtures. Test data should look
+like a plausible generic network, not like anyone's actual one.
+
+## Commands
+
+```bash
+make check     # ruff format --check, ruff check, pytest (run before committing)
+make map       # fetch + render against the live controller
+make sane      # render in the readable (non-UniFi) layout
+make offline   # builtin icons, no network access
+make demo      # render the shipped demo dataset, no controller needed
+make test      # pytest only
+```
+
+Single test: `.venv/bin/python -m pytest tests/test_assets.py::TestCatalog`
+
+Tests never touch the network. Fixtures in `tests/conftest.py` are synthetic
+payloads with invented MACs; `tests/test_assets.py` writes a catalog straight
+into a temp cache so `AssetStore` reads from disk.
+
+## Pipeline
+
+Each stage owns one concern; nothing downstream of `model.py` sees raw
+controller JSON.
+
+1. **`config.py`** is the only module that reads `os.environ`. Accepts `UNIFI_*`
+   and `UDM_*` names. Keep it that way: it's what makes a future Vault/OpenBao
+   backend a single-file change. Credentials are `UNIFI_HOST` plus
+   `UNIFI_API_KEY`, and nothing else.
+2. **`client.py`** is the only module that talks to the controller. Auth is an
+   `X-API-KEY` header set once in the constructor; there is no login, session or
+   CSRF token. Network application paths are prefixed `/proxy/network`. `unwrap()` absorbs both the v1 `{"data": [...]}`
+   envelope and bare v2 lists, returning `[]` on anything unexpected so a
+   controller upgrade thins the diagram instead of raising.
+3. **`model.py`** normalizes into `Topology`. All schema quirks land here.
+4. **`assets.py`** is the only module that fetches artwork. Cached under
+   `--asset-cache` (default `cache/assets`), deliberately separate from the
+   snapshot cache so `--cache-dir examples/demo` doesn't get downloads written
+   into it.
+5. **`layout.py`** is the only module that shells out to Graphviz (`dot`,
+   `unflatten`).
+6. **`render_dot.py` / `render_drawio.py` / `svg_post.py`** are pure functions
+   from `Topology` to text. `theme.py` holds every colour, shape and label.
+
+## Artwork constraints
+
+- **Never vendor Ubiquiti artwork into the repo.** It is their IP. It is fetched
+  at runtime and cached under `cache/` (gitignored). `--icons builtin` must stay
+  a fully working, network-free path.
+- **Match devices on `sysid`, not `model`.** The controller's `model` string does
+  not reliably match the catalog's `shortnames` (`USWED72` vs `USPH24P`).
+  Catalog sysids are hex strings, the controller reports decimal ints; all 1178
+  catalog values are unambiguously hex, so strict base-16 parsing is correct.
+- The controller does **not** serve device *images* locally (verified on Network
+  10.5.67: every plausible path under `/proxy/network/manage/angular/<hash>/`
+  returns the SPA's HTML 404). It DOES serve the icon font, and it serves the
+  fingerprint database at `/proxy/network/v2/api/fingerprint_devices/0`.
+- **Client artwork is `static.ui.com/fingerprint/0/{dev_id}_{size}.png`**, keyed
+  on the fingerprint `dev_id` in `stat/sta` (`dev_id_override` wins). Only
+  257x257, 129x129 and 101x101 exist; any other size 302s to ui.com, so treat a
+  redirect as "absent" and do not follow it. This is `staticFingerprintOld` in
+  the Network UI config.
+- **Two frontends exist. Read the right one.** `/manage/` is the legacy Angular
+  app; its `getIconClassName` resolves clients to just four icon-font glyphs, so
+  reading it will convince you no client artwork exists. The app the browser
+  actually loads is the React one served from the UniFi OS root (`/275.*.js`,
+  `/main~2.*.js`), and that is where the real image URLs live. When hunting an
+  asset, find it in the bundle the browser loads rather than inferring from a
+  failed guess.
+- Artwork must degrade: no network, no Pillow, or unknown hardware all fall back
+  to the shape renderer rather than failing the run.
+
+## Rendering constraints
+
+- **Don't switch `--layout sane` edges to `splines=ortho`.** It looks tidier but
+  Graphviz cannot place edge labels on orthogonal routes, so port numbers drift
+  far from their link and float beside unrelated nodes. `--layout unifi` *does*
+  use ortho, and deliberately suppresses port labels for exactly this reason.
+- **Edges are emitted parent → child, the reverse of how they're stored**, so the
+  root lands at the top (TB) or left (LR) rather than trailing at the far end.
+- **`--layout unifi` omits the title block and legend.** A graph label sets a
+  minimum canvas width, which pads a tall narrow map with dead space on both
+  sides. The UniFi UI has neither, so dropping them is faithful *and* tighter.
+- **Stagger once, before rendering.** `_write_outputs()` applies `unflatten`
+  then feeds the *same* DOT to the SVG render and the draw.io coordinate pass.
+  Different DOT means draw.io positions disagree with the SVG.
+- **`unflatten` reformats the file.** It re-tabs and drops trailing semicolons,
+  so `sed`-style patches against generated `.dot` files silently no-op. Change
+  `render_dot.py` instead.
+- **Graphviz identifiers cannot contain a raw MAC.** DOT reads `:` as a port
+  specifier, so `_node_id()` strips colons; `render_drawio.py` reuses it so
+  layout lookups line up.
+- **Graphviz `<IMG SRC>` needs a filesystem path**, not a data URI.
+  `svg_post.inline_svg_images()` rewrites those paths into data URIs afterwards,
+  restricted to the icon cache dir so a crafted device name cannot pull in
+  arbitrary files.
+- **draw.io wants `data:image/png,<base64>`**: comma, *not* `;base64,`.
+- **`mxGeometry` needs `as="geometry"`.** `as` is a Python keyword and cannot be
+  a `SubElement` kwarg; `_geometry()` sets it afterwards. Without it draw.io
+  silently ignores every position and piles all shapes at the origin.
+- **Size icon cells to the real aspect ratio** via `IconAsset.display_size()`.
+  Rack switches are wide and short; a square cell letterboxes them into a thin
+  strip surrounded by dead space.
+- **Colour is never the only channel.** The accent palette is Okabe-Ito and every
+  distinction is also carried by artwork, shape or line style. Don't add a
+  red/green pair that carries meaning alone.
+- **Never invent a product match.** `AssetStore.sysid_for_name()` is how UniFi
+  hardware appearing as a client gets artwork, and it returns a match only when
+  exactly one catalogue entry matches. `g3-flex` genuinely matches both
+  `UVC-G3-FLEX` (Protect camera) and `UA-G3-Flex` (Access reader), so ties are
+  broken with a device type from another app (Protect's camera list), never by
+  preference or ordering. Ambiguous stays ambiguous and falls back to the glyph.
+- **Never invent topology.** Clients whose uplink the controller doesn't report
+  get anchored to `UNKNOWN_UPLINK_ID`. Don't guess a plausible parent switch.
+- **`Topology.infrastructure` includes `Kind.UNKNOWN`** so that placeholder
+  survives per-network filtering. Removing it re-orphans those clients.
+
+## Defaults reproduce the UniFi web view
+
+`--icons unifi --layout unifi --theme light` is chosen so the tool matches what
+the console shows out of the box. Don't change a default to something "better
+looking" without a reason; the point is fidelity first, with `sane` available
+for readability.
+
+The single deliberate exception is `--show-offline no`: the UI offers no way to
+hide stale hardware, which was specifically wanted. `build_topology()` still
+defaults `include_offline=True` (a library shouldn't drop data silently); only the
+CLI flips it.
+
+When excluding offline devices, they are left out of `device_macs` too, so the
+uplink pass must skip any device not in `topo.nodes`; indexing it directly was a
+real KeyError.
+
+## `--layout unifi` is an approximation, and the docs say so
+
+It is deliberately not claimed to be pixel-identical to the controller UI:
+Graphviz owns the layout, so sibling order and spacing are its decisions, link
+routing differs in its corners and channels, typography and label content are
+ours, clients fall back to shapes because the client fingerprint icon database
+is not reachable, and the output is static. The README has a section spelling
+this out. Keep improving fidelity if you like, but do not let the documentation
+start implying an exactness that is not there.
+
+## Whether `unifi` layout is narrower than `sane` is data-dependent
+
+It is on a real network with many sibling clients (1305pt vs 4648pt observed),
+and inverts on a small fixture where tree depth dominates. Don't assert it.
+
+## Demo dataset
+
+`examples/demo/` is generated by `scripts/make_demo_snapshot.py`; edit the
+script, not the JSON. MACs use the locally-administered `02:` prefix and
+addresses are RFC 1918, but the **sysids are real** because that is the artwork
+join key; fake ones would leave the demo unable to show icons. `tests/test_demo.py`
+enforces both of those properties. The dataset intentionally includes an offline
+device, four VLANs, and an unplaceable client so those behaviours are visible.
+
+## Overrides are a stub
+
+`overrides.py` has a working, tested schema and loader; `apply()` raises
+`NotImplementedError` and nothing in the render path calls it. See
+`docs/overrides.md` for the spec and remaining work. When implementing, an
+unmatched or ambiguous selector must be a loud error (a typo that silently does
+nothing is worse than a failed run), and user-asserted links must stay visually
+distinguishable from what the controller reported.
+
+## Open work
+
+- **ISP logo on the Internet node.** `wan_info()` reads `isp_name` from
+  `stat/health`, so the node is already labelled ("Carl's Discount Internet & Tackle"). The logo is
+  real: the UniFi infrastructure view renders a brand mark beside each WAN entry,
+  a brand mark for the primary on WAN1 and another for the backup on WAN2 (in
+  testing, Carl's Discount Internet & Tackle and Cruelty Cable Co.). Both are present, so
+  expect a systematic lookup keyed on something like the ISP name or ASN, not a
+  sparse hand-maintained table.
+
+  Where it is *not*: searched `/275`, `/905`, `/989`, `/main~0`, `/main~2` and the
+  legacy `/manage/` bundles for `isp*Logo|Icon|Image|Brand`, `/isp` URL
+  templates, and carrier/provider logo identifiers. Only hits were
+  `${NCA}/network-cloud/v2/isp-metrics`, an `/isp-viewer` route, and a legacy
+  `ispThroughput.pug`. None of them build an image URL.
+
+  What `images.svc.ui.com` turned out to be: a generic image resizing proxy,
+  `https://images.svc.ui.com/?u=<source-url>&w=<px>&q=<quality>`, built by a
+  shared `<img>` component in `main~2` that also takes `srcFallbackOffline` and
+  `srcFallbackBundled`. It is not ISP-specific and resolves nothing on its own;
+  the real logo URL has to arrive as data in the `u` parameter.
+
+  The only ISP data reference in the bundles is
+  `${NCA}/network-cloud/v2/isp-metrics`, a **cloud** endpoint, so the logo URL
+  may well be cloud-provided. But the local `stat/health` WAN subsystem does
+  carry an **`asn`** alongside `isp_name`, `isp_organization` and `wan_ip`, and
+  an ASN is exactly the sort of key a brand-logo service keys on. That is
+  available from a local API key, so do not write this off as cloud-only without
+  testing it.
+
+  Concrete next step: take the ASN from `stat/health` (a real one, not a
+  documentation value) and see whether any
+  Ubiquiti-hosted path resolves a logo from it, then feed whatever URL that
+  yields through the `images.svc.ui.com/?u=...` proxy. If nothing local resolves
+  it, only then treat cloud as the answer.
+
+  Do not repeat: greps for `isp*Logo|Icon|Image|Brand`, `/isp` templates or
+  carrier/provider identifiers across `/275`, `/905`, `/989`, `/main~0`,
+  `/main~2` and the legacy `/manage/` bundles. Also do not look for a webpack
+  chunk id-to-hash map; the React bundles do not expose one in the usual shape.
+- **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
+  and uplinks, separate from the client topology. `--no-clients` approximates it.
+- **Apply overrides** (see above).
+- **An obfuscate mode**, probably the highest value item on this list. `--obfuscate`
+  would strip identifying detail from the output so somebody can share a layout
+  problem, or a wrong-artwork problem, without publishing their network. Right
+  now `SECURITY.md` and the issue templates have to tell people to redact by hand
+  or reproduce against the demo data, which is a poor substitute.
+
+  What must go: hostnames, IP addresses, MAC addresses, network and VLAN names,
+  SSIDs, the ISP name and the WAN address.
+
+  What must stay, because otherwise the output is useless for the purpose: the
+  shape of the topology, device roles and models, artwork, port numbers, counts,
+  and which clients sit on which network. The point is a diagram that is still
+  diagnosable.
+
+  Traps worth knowing before starting:
+
+  - **Strip at the model level, not the drawing level.** An SVG carries its
+    labels as selectable text, and `.drawio` and `.dot` carry them too. Anything
+    that paints over the top is not redaction.
+  - **Every format, or none.** A mode that cleans the SVG and leaves `.drawio`
+    readable is worse than no mode at all, because it creates false confidence.
+    The test for this should render every format and assert that not one original
+    identifier from the fixtures appears anywhere in any of them.
+  - **Labels need to be stable, not random.** The same device should keep the same
+    pseudonym (`ap-1`, `client-07`) across re-renders, or a follow-up screenshot
+    in the same conversation will not line up. Derive them from a stable sort,
+    not from a hash of the real name, which for a short hostname is trivially
+    reversible.
+  - **Renumber addresses while preserving grouping.** Mapping each real subnet
+    onto a documentation range keeps the VLAN structure visible, which is often
+    the thing being discussed.
+  - **Vendor is a judgement call.** An OUI of Ubiquiti drives the hardware
+    lookup, and vendor strings help diagnosis, but they are mildly identifying.
+    Decide deliberately and document it.
+  - Do not forget the title block and subtitle, or the Internet node, which
+    carries the ISP name and the WAN address.
+
+- **Verify a least-privilege API key path.** A key inherits the creating
+  account's permissions. Verified 2026-07-30 that a key made under a super admin
+  reports `is_super: true` from `GET /proxy/network/api/self`, and that a POST
+  with it fails validation rather than authorisation, so it can write. This tool
+  only reads, so a read-only admin's key should be enough, but that has never
+  been tested end to end.
+
+  Established 2026-07-30, after failing to find anywhere to scope a key: **you
+  cannot scope a key, you scope the account.** `GET /proxy/users/api/v2/roles`
+  works with an API key and shows UniFi auto-minting a private role per limited
+  admin, named like `role_private_1783895702`, carrying permissions such as
+  `{"network.management": ["readonly"], "protect.management": ["readonly"]}`.
+  Read-only roles of exactly the shape this tool needs already exist in the wild,
+  so this is account configuration rather than a missing UniFi feature.
+
+  Endpoint moves worth knowing: `rest/admin` is 404 on 10.5.67 and admin data
+  lives under `/proxy/users/api/v2/` now. `/api/users` and `/api/roles` are 404.
+  `/proxy/users/api/v2/users` returns 200 but does not expose role assignment in
+  an obvious field, so do not burn time there.
+
+  Then it got narrower still. `GET /proxy/users/api/v2/user/self/keys` shows
+  `key_permissions` empty on every key, with `permissions` reading
+  `{"network.management": ["admin"]}` and `scopes` listing everything the account
+  can do. **Per-key scoping is not populated by anything**, so a key is the
+  account. Jason could not find any interface for creating a scoped account
+  either, despite two `custom_administrator` roles existing on his own console,
+  one made in 2022 and one in July 2026.
+
+  So the blocker is not knowledge, it is a UI that could not be located. Do not
+  spend more read-only probing on it; the API surface has been mapped. The useful
+  next step is either finding that interface on a current release, or accepting
+  that least privilege is not reachable and leaving `SECURITY.md` telling people
+  to treat the key as equal to its account. If it ever is reachable, the test is
+  still: mint the key, run `unifi-map fetch`, and record which of the ten requests
+  survive. The `manage/` icon font paths and the Protect camera list are the
+  likely casualties.
+
+  Do not probe this with live writes against a production controller. The write
+  test above should not have been run without asking.
+
+- **GitHub Actions.** There is no CI. The repo had a `.gitlab-ci.yml` briefly,
+  removed because how the GitLab copy is maintained is local administration;
+  Actions is the right home now that GitHub is the source of truth.
+
+  This is unusually easy here, and that is worth stating: **tests never touch the
+  network**, so CI needs no secrets, no controller and no credentials. Nothing has
+  to be arranged before it can run.
+
+  Rough shape:
+
+  - `make check` on push and pull request. That is `ruff format --check`,
+    `ruff check` and `pytest`.
+  - Install `graphviz` with apt, which also provides `unflatten`.
+  - Matrix over the Python versions the project claims to support. `pyproject`
+    says 3.11 and up, so 3.11, 3.12 and 3.13, and either fix the claim or fix the
+    code if one of them fails.
+  - A demo smoke test that actually renders: `unifi-map --cache-dir examples/demo
+    render --icons builtin --offline -f svg drawio`. That exercises the whole
+    pipeline end to end including Graphviz, and `builtin` plus `offline` keeps it
+    network-free. It would have caught more than one thing tonight.
+  - Enforce the house rules the tests cannot: the em-dash check
+    (`git ls-files | xargs grep -nP '\x{2014}'` must find nothing), and a grep
+    asserting no snapshot or artwork got committed.
+
+  Do not add a job that talks to a real controller. There is nothing to gain and
+  it would mean putting an API key in repository secrets.
+- **GitHub community standards.** The repo passes on README and LICENSE and is
+  missing the rest of GitHub's checklist. None of it is urgent, all of it is
+  cheap, and two are worth actual thought rather than boilerplate:
+
+  Done: `CODE_OF_CONDUCT.md` (Contributor Covenant, added via the web UI).
+  Remaining:
+
+  - **Repository description.** Not a file: it is a GitHub setting. Keep it
+    consistent with the `description` in `pyproject.toml`.
+  - **`SECURITY.md`.** Worth writing rather than pasting a template. The useful
+    content is that the tool is read only against a controller, that it wants an
+    API key and what that key can reach, that snapshots under `cache/` are a
+    MAC, hostname and IP inventory that should not be shared, and how to report
+    something privately.
+  - **`CONTRIBUTING.md`.** Should say `make check` is the gate, that tests never
+    touch the network, that fixtures must stay non-identifying, and that the code
+    is largely AI authored under review, since a contributor deserves to know
+    that before reading it.
+  Also done: `SECURITY.md`, `CONTRIBUTING.md`, and the issue and pull request
+  templates under `.github/`. The issue forms ask for console model, Network
+  version and site count, since those three explain most of what could go wrong
+  and are exactly what the caveats section admits are untested.
+
+## API key auth only
+
+Verified 2026-07-29: an `X-API-KEY` header reaches `stat/device`, `stat/sta`,
+`rest/networkconf`, `stat/health`, `v2/api/fingerprint_devices/0` and the web
+app's static assets, so a key covers the whole tool including the icon font.
+Password auth was removed; do not add it back.
+
+## Observed versus assumed
+
+Everything here was developed against one console: a UDM Pro Max on Network
+10.5.67 with a **single site**. Keep the docs honest about that boundary rather
+than letting confident prose creep in.
+
+Specifically not verified, and currently caveated in the README:
+
+- Multi-site controllers. The claim that a hand-created site's internal name is
+  an opaque string is general UniFi knowledge, not an observation. This is why
+  the docs point at the URL and `GET /proxy/network/api/self/sites` instead of
+  describing the value's shape.
+- That Lucid imports the `.drawio` output. draw.io itself is confirmed working.
+
+If any of these gets verified, tighten the README instead of leaving a hedge in
+place. If one turns out broken, it is a bug, not a documented limitation.
+
+## Data hygiene
+
+`cache/` and `out/` are gitignored; snapshots are written `0600`. A snapshot is a
+full MAC/hostname/IP inventory. Never commit one or paste it into an issue.

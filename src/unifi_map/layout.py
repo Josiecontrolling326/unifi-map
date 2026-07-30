@@ -1,0 +1,177 @@
+"""Run Graphviz and parse the coordinates it computes.
+
+Graphviz's `-Tplain` output is a stable, line-oriented format, which lets us
+reuse `dot`'s hierarchical layout for the draw.io export instead of dumping a
+pile of unpositioned shapes on the canvas for you to arrange by hand.
+"""
+
+from __future__ import annotations
+
+import logging
+import shutil
+import subprocess
+from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
+
+POINTS_PER_INCH = 72.0
+
+
+class GraphvizMissing(RuntimeError):
+    """Raised when the `dot` binary is not on PATH."""
+
+
+class GraphvizError(RuntimeError):
+    """Raised when `dot` runs but fails."""
+
+
+@dataclass(frozen=True)
+class Placed:
+    """A node's position in draw.io pixel space (origin top-left)."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+@dataclass(frozen=True)
+class Layout:
+    nodes: dict[str, Placed]
+    width: float
+    height: float
+
+
+def require_dot() -> str:
+    path = shutil.which("dot")
+    if not path:
+        raise GraphvizMissing(
+            "Graphviz `dot` not found on PATH. Install it with: sudo apt install graphviz"
+        )
+    return path
+
+
+def run_dot(dot_source: str, output_format: str, engine: str = "dot") -> bytes:
+    """Render *dot_source*, returning raw bytes of *output_format*."""
+    require_dot()
+    try:
+        result = subprocess.run(
+            [engine, f"-T{output_format}"],
+            input=dot_source.encode("utf-8"),
+            capture_output=True,
+            timeout=300,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise GraphvizMissing(f"Layout engine `{engine}` not found.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GraphvizError("Graphviz timed out after 300s.") from exc
+
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        raise GraphvizError(f"Graphviz failed ({result.returncode}): {stderr}")
+    return result.stdout
+
+
+def stagger(dot_source: str, depth: int) -> str:
+    """Stagger leaf nodes via Graphviz's `unflatten` to tame the aspect ratio.
+
+    A network tree is mostly leaves: ~50 clients hanging off a handful of
+    switches lays out as a 9:1 ribbon that is technically zoomable but
+    miserable to read or print. `unflatten` chains those leaves into shorter
+    rows, which on a ~60-node network takes 9192x1021pt to 4953x2736pt.
+
+    Returns *dot_source* unchanged if depth <= 0 or `unflatten` is unavailable,
+    since a poor aspect ratio is far better than no diagram.
+    """
+    if depth <= 0:
+        return dot_source
+    if shutil.which("unflatten") is None:
+        log.warning("`unflatten` not found; skipping stagger. Diagram may be very wide.")
+        return dot_source
+    try:
+        result = subprocess.run(
+            ["unflatten", "-f", "-l", str(depth)],
+            input=dot_source.encode("utf-8"),
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        log.warning("`unflatten` failed; using unstaggered layout.", exc_info=True)
+        return dot_source
+    if result.returncode != 0 or not result.stdout.strip():
+        log.warning("`unflatten` returned no output; using unstaggered layout.")
+        return dot_source
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+def _split_plain(line: str) -> list[str]:
+    """Split a `-Tplain` line, honouring double-quoted fields."""
+    fields: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    escaped = False
+    for char in line:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            in_quotes = not in_quotes
+        elif char.isspace() and not in_quotes:
+            if current:
+                fields.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+    if current:
+        fields.append("".join(current))
+    return fields
+
+
+def parse_plain(plain: str) -> Layout:
+    """Parse `-Tplain` into pixel-space positions.
+
+    Graphviz emits inches with a bottom-left origin; draw.io wants pixels with
+    a top-left origin, so y is flipped against the reported graph height.
+    """
+    scale = 1.0
+    graph_w = graph_h = 0.0
+    raw: dict[str, tuple[float, float, float, float]] = {}
+
+    for line in plain.splitlines():
+        fields = _split_plain(line.strip())
+        if not fields:
+            continue
+        if fields[0] == "graph" and len(fields) >= 4:
+            scale, graph_w, graph_h = (float(fields[1]), float(fields[2]), float(fields[3]))
+        elif fields[0] == "node" and len(fields) >= 6:
+            name, x, y, w, h = fields[1], *map(float, fields[2:6])
+            raw[name] = (x, y, w, h)
+        elif fields[0] == "stop":
+            break
+
+    nodes: dict[str, Placed] = {}
+    for name, (x, y, w, h) in raw.items():
+        width = w * POINTS_PER_INCH
+        height = h * POINTS_PER_INCH
+        # x,y is the node centre; draw.io geometry is the top-left corner.
+        nodes[name] = Placed(
+            x=x * POINTS_PER_INCH - width / 2.0,
+            y=(graph_h - y) * POINTS_PER_INCH - height / 2.0,
+            width=width,
+            height=height,
+        )
+
+    return Layout(
+        nodes=nodes,
+        width=graph_w * POINTS_PER_INCH * scale,
+        height=graph_h * POINTS_PER_INCH * scale,
+    )
+
+
+def compute_layout(dot_source: str, engine: str = "dot") -> Layout:
+    plain = run_dot(dot_source, "plain", engine=engine).decode("utf-8", errors="replace")
+    return parse_plain(plain)

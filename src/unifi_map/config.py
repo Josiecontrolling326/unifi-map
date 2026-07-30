@@ -1,0 +1,131 @@
+"""Environment handling.
+
+This is the only module that reads ``os.environ``. Keeping it that way is what
+makes swapping the ``.env`` file for OpenBao/Vault a single-file change later.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+
+class ConfigError(RuntimeError):
+    """Raised when required configuration is missing or malformed."""
+
+
+# Both naming schemes are accepted so the tool works with an existing UDM_*
+# credential file or with UNIFI_* names from other UniFi tooling.
+_ALIASES: dict[str, tuple[str, ...]] = {
+    "host": ("UNIFI_HOST", "UDM_HOST"),
+    "api_key": ("UNIFI_API_KEY", "UDM_API_KEY"),
+    "site": ("UNIFI_SITE", "UDM_SITE"),
+    "verify": ("UNIFI_VERIFY_TLS", "UDM_VERIFY_TLS"),
+}
+
+# Searched in order; the first existing file wins. Set UNIFI_MAP_ENV to point at
+# a credential file kept outside the project directory.
+ENV_FILE_VAR = "UNIFI_MAP_ENV"
+
+
+def default_env_files() -> list[Path]:
+    candidates: list[Path] = []
+    override = os.environ.get(ENV_FILE_VAR)
+    if override:
+        candidates.append(Path(override).expanduser())
+    candidates.append(Path.cwd() / ".env")
+    candidates.append(Path.home() / ".config" / "unifi-map" / "env")
+    return candidates
+
+
+def _first(keys: tuple[str, ...]) -> str | None:
+    """First non-empty value among *keys*, so either naming scheme works."""
+    for key in keys:
+        value = os.environ.get(key)
+        if value:
+            return value
+    return None
+
+
+@dataclass(frozen=True)
+class ExporterConfig:
+    host: str
+    api_key: str
+    site: str = "default"
+    verify_tls: bool | str = True
+
+    @property
+    def base_url(self) -> str:
+        host = self.host
+        if not host.startswith(("http://", "https://")):
+            host = f"https://{host}"
+        return host.rstrip("/")
+
+
+def _parse_verify(raw: str) -> bool | str:
+    """Interpret UNIFI_VERIFY_TLS as a bool, or a path to a CA bundle."""
+    lowered = raw.strip().lower()
+    if lowered in {"false", "0", "no", "off", ""}:
+        return False
+    if lowered in {"true", "1", "yes", "on"}:
+        return True
+    # Anything else is treated as a CA bundle path, which requests accepts
+    # directly in place of a bool.
+    return raw.strip()
+
+
+def load_dotenv(path: Path) -> None:
+    """Load KEY=VALUE lines from *path* into os.environ without overriding
+    variables already set in the real environment."""
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+def load_config(env_file: Path | None = None) -> ExporterConfig:
+    """Build config from *env_file*, or the first file in the default search path.
+
+    Real environment variables always win over file contents, so a one-off run
+    can override a credential without editing any file.
+    """
+    searched: list[Path] = [env_file] if env_file is not None else default_env_files()
+    for candidate in searched:
+        if candidate.is_file():
+            load_dotenv(candidate)
+            break
+
+    host = _first(_ALIASES["host"])
+    api_key = _first(_ALIASES["api_key"])
+
+    locations = ", ".join(str(p) for p in searched)
+    missing = [
+        name
+        for name, value in (("host (UNIFI_HOST)", host), ("API key (UNIFI_API_KEY)", api_key))
+        if not value
+    ]
+    if missing:
+        raise ConfigError(
+            "Missing required configuration: "
+            + ", ".join(missing)
+            + f". Checked the environment and: {locations}. "
+            f"Copy .env.example to .env, or set {ENV_FILE_VAR} to a credential file."
+        )
+
+    assert host and api_key  # narrowed above
+    if api_key == "CHANGE_ME":
+        raise ConfigError("UNIFI_API_KEY is still the placeholder value CHANGE_ME.")
+
+    return ExporterConfig(
+        host=host,
+        api_key=api_key,
+        site=_first(_ALIASES["site"]) or "default",
+        verify_tls=_parse_verify(_first(_ALIASES["verify"]) or "true"),
+    )
