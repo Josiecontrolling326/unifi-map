@@ -1,0 +1,324 @@
+"""Obfuscation.
+
+The load-bearing test here is `test_nothing_leaks_into_any_output_format`. A mode
+that cleans one format and leaves another readable is worse than no mode at all,
+because it creates false confidence, so the check renders everything and looks
+for every original value in all of it.
+"""
+
+from __future__ import annotations
+
+import shutil
+
+import pytest
+
+from unifi_map.client import Snapshot
+from unifi_map.layout import run_dot
+from unifi_map.model import UNKNOWN_UPLINK_ID, Kind, build_topology
+from unifi_map.obfuscate import PLACEHOLDER_WAN_IP, obfuscate
+from unifi_map.render_dot import Style, render_dot
+from unifi_map.theme import LIGHT
+
+from .conftest import AP_MAC, GATEWAY_MAC, SWITCH_MAC
+
+needs_graphviz = pytest.mark.skipif(
+    shutil.which("dot") is None, reason="graphviz `dot` not installed"
+)
+
+STYLE = Style(theme=LIGHT, icons="builtin", layout="sane")
+
+
+@pytest.fixture
+def identifying(devices: dict, clients: dict, networkconf: dict) -> dict:
+    """A snapshot plus the list of values that must never reach the output."""
+    health = {
+        "data": [
+            {
+                "subsystem": "wan",
+                "isp_name": "Carls Discount Internet",
+                "wan_ip": "198.51.100.42",
+            }
+        ]
+    }
+    clients["data"].append(
+        {
+            "mac": "dd:ee:ff:00:00:55",
+            "hostname": "secret-laptop",
+            "is_wired": False,
+            "ap_mac": AP_MAC,
+            "essid": "MySecretSSID",
+            "network_id": "net1",
+        }
+    )
+    snapshot = Snapshot(
+        payloads={
+            "device": devices,
+            "client_active": clients,
+            "networkconf": networkconf,
+            "health": health,
+        }
+    )
+    secrets = [
+        "Carls Discount Internet",
+        "198.51.100.42",
+        "secret-laptop",
+        "MySecretSSID",
+        "nas",
+        "tuner",
+        "phone",
+        "10.0.20.10",
+        "10.0.30.12",
+        "10.0.0.51",
+        GATEWAY_MAC,
+        SWITCH_MAC,
+        AP_MAC,
+        "dd:ee:ff:00:00:55",
+        # MACs also appear stripped of colons in Graphviz identifiers.
+        GATEWAY_MAC.replace(":", ""),
+        SWITCH_MAC.replace(":", ""),
+        "ddeeff000055",
+        "lan",
+        "servers",
+        "iot",
+        "test-wifi",
+        "test-iot",
+    ]
+    return {"snapshot": snapshot, "secrets": secrets}
+
+
+@needs_graphviz
+def test_nothing_leaks_into_any_output_format(identifying):
+    from unifi_map.layout import compute_layout
+    from unifi_map.render_drawio import render_drawio
+
+    topo = obfuscate(build_topology(identifying["snapshot"]))
+    dot_source = render_dot(topo, "Network map", STYLE, subtitle="a subtitle")
+
+    outputs = {
+        "dot": dot_source.encode(),
+        "svg": run_dot(dot_source, "svg"),
+        "drawio": render_drawio(topo, compute_layout(dot_source), "map", LIGHT).encode(),
+    }
+
+    failures = []
+    for fmt, blob in outputs.items():
+        text = blob.decode("utf-8", errors="replace").lower()
+        for secret in identifying["secrets"]:
+            # Whole-word-ish: "lan" would otherwise match "vlan" or "planned".
+            needle = secret.lower()
+            if len(needle) <= 4:
+                found = any(
+                    text[max(0, i - 1) : i + len(needle) + 1].strip("abcdefghijklmnopqrstuvwxyz")
+                    == needle
+                    for i in range(len(text))
+                    if text.startswith(needle, i)
+                )
+            else:
+                found = needle in text
+            if found:
+                failures.append(f"{fmt}: {secret!r}")
+    assert not failures, "identifying values reached the output: " + ", ".join(failures)
+
+
+class TestStructureSurvives:
+    def test_counts_and_shape_are_unchanged(self, snapshot: Snapshot):
+        before = build_topology(snapshot)
+        after = obfuscate(before)
+        assert len(after.nodes) == len(before.nodes)
+        assert len(after.edges) == len(before.edges)
+        assert after.counts() == before.counts()
+
+    def test_every_edge_still_points_at_real_nodes(self, snapshot: Snapshot):
+        after = obfuscate(build_topology(snapshot))
+        for edge in after.edges:
+            assert edge.src in after.nodes
+            assert edge.dst in after.nodes
+
+    def test_parent_child_relationships_are_preserved(self, snapshot: Snapshot):
+        before = build_topology(snapshot)
+        after = obfuscate(before)
+        # The switch hangs off the gateway in both, whatever they are called.
+        gateway = next(n.id for n in after.nodes.values() if n.kind is Kind.GATEWAY)
+        switch_parents = {e.dst for e in after.edges if after.nodes[e.src].kind is Kind.SWITCH}
+        assert gateway in switch_parents
+
+    def test_port_labels_survive(self, snapshot: Snapshot):
+        after = obfuscate(build_topology(snapshot))
+        assert any(e.label and "port" in e.label for e in after.edges)
+
+    def test_clients_keep_their_network_grouping(self, snapshot: Snapshot):
+        before = build_topology(snapshot)
+        after = obfuscate(before)
+
+        # Two clients shared a network before, so two must share one after.
+        def grouping(topo):
+            counts: dict[str, int] = {}
+            for n in topo.nodes.values():
+                if n.network:
+                    counts[n.network] = counts.get(n.network, 0) + 1
+            return sorted(counts.values())
+
+        assert grouping(after) == grouping(before)
+
+    def test_artwork_keys_are_kept(self, snapshot: Snapshot):
+        before = build_topology(snapshot)
+        after = obfuscate(before)
+        assert sorted(n.sysid for n in before.nodes.values() if n.sysid) == sorted(
+            n.sysid for n in after.nodes.values() if n.sysid
+        )
+
+    def test_the_uplink_placeholder_keeps_its_explanatory_label(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        clients["data"].append(
+            {"mac": "dd:ee:ff:00:00:99", "hostname": "vm", "is_wired": True, "network_id": "net1"}
+        )
+        topo = obfuscate(
+            build_topology(
+                Snapshot(
+                    payloads={
+                        "device": devices,
+                        "client_active": clients,
+                        "networkconf": networkconf,
+                    }
+                )
+            )
+        )
+        # Renaming this to "device-01" would destroy the only thing it explains.
+        assert "not reported" in topo.nodes[UNKNOWN_UPLINK_ID].label
+
+
+class TestStability:
+    def test_the_same_topology_maps_the_same_way_twice(self, snapshot: Snapshot):
+        topo = build_topology(snapshot)
+        first = obfuscate(topo)
+        second = obfuscate(topo)
+        assert sorted(first.nodes) == sorted(second.nodes)
+        assert {n.id: n.label for n in first.nodes.values()} == {
+            n.id: n.label for n in second.nodes.values()
+        }
+
+    def test_labels_are_not_derived_from_the_real_name(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        # A hash of a short hostname is trivially reversible, so the pseudonym
+        # must not vary with the name it replaces.
+        def build(name):
+            payload = {"data": list(clients["data"])}
+            payload["data"].append(
+                {
+                    "mac": "dd:ee:ff:00:00:aa",
+                    "hostname": name,
+                    "is_wired": True,
+                    "sw_mac": SWITCH_MAC,
+                    "sw_port": 3,
+                    "network_id": "net1",
+                }
+            )
+            return obfuscate(
+                build_topology(
+                    Snapshot(
+                        payloads={
+                            "device": devices,
+                            "client_active": payload,
+                            "networkconf": networkconf,
+                        }
+                    )
+                )
+            )
+
+        a = build("alice-laptop")
+        b = build("bob-desktop")
+        assert sorted(a.nodes) == sorted(b.nodes)
+
+
+class TestScrubbing:
+    def test_addresses_are_renumbered_but_still_grouped(self, snapshot: Snapshot):
+        after = obfuscate(build_topology(snapshot))
+        by_net: dict[str, set[str]] = {}
+        for n in after.nodes.values():
+            if n.network and n.ip:
+                by_net.setdefault(n.network, set()).add(n.ip.rsplit(".", 1)[0])
+        # Each network occupies one prefix, so the VLAN structure stays visible.
+        for network, prefixes in by_net.items():
+            assert len(prefixes) == 1, f"{network} spread across {prefixes}"
+
+    def test_the_wan_address_becomes_a_documentation_address(
+        self, devices: dict, networkconf: dict
+    ):
+        health = {"data": [{"subsystem": "wan", "isp_name": "Some ISP", "wan_ip": "9.9.9.9"}]}
+        topo = obfuscate(
+            build_topology(
+                Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+            )
+        )
+        internet = topo.nodes["internet"]
+        assert internet.ip == PLACEHOLDER_WAN_IP
+        assert internet.label == "Internet"
+        assert "Some ISP" not in (internet.label or "")
+
+    def test_an_ssid_is_dropped_when_there_is_no_fingerprint(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:bb",
+                "is_wired": False,
+                "ap_mac": AP_MAC,
+                "essid": "PrivateSSID",
+                "network_id": "net1",
+            }
+        )
+        topo = obfuscate(
+            build_topology(
+                Snapshot(
+                    payloads={
+                        "device": devices,
+                        "client_active": clients,
+                        "networkconf": networkconf,
+                    }
+                )
+            )
+        )
+        assert all((n.detail or "") != "PrivateSSID" for n in topo.nodes.values())
+
+    def test_a_fingerprint_product_name_is_kept(
+        self, devices: dict, clients: dict, networkconf: dict
+    ):
+        fingerprint = {
+            "dev_ids": {"4425": {"name": "Nest Audio", "dev_type_id": "2"}},
+            "dev_type_ids": {"2": "Soundbar"},
+        }
+        clients["data"].append(
+            {
+                "mac": "dd:ee:ff:00:00:cc",
+                "is_wired": False,
+                "ap_mac": AP_MAC,
+                "network_id": "net1",
+                "dev_id": 4425,
+            }
+        )
+        topo = obfuscate(
+            build_topology(
+                Snapshot(
+                    payloads={
+                        "device": devices,
+                        "client_active": clients,
+                        "networkconf": networkconf,
+                        "fingerprint": fingerprint,
+                    }
+                )
+            )
+        )
+        # The artwork shows a soundbar regardless, so hiding the word is theatre.
+        assert any(n.detail == "Soundbar" for n in topo.nodes.values())
+
+    def test_network_names_are_replaced_but_vlan_ids_kept(self, snapshot: Snapshot):
+        before = build_topology(snapshot)
+        after = obfuscate(before)
+        names = {n.network for n in after.nodes.values() if n.network}
+        assert names
+        assert all(n.startswith("network-") for n in names)
+        assert {n.vlan for n in after.nodes.values() if n.vlan} == {
+            n.vlan for n in before.nodes.values() if n.vlan
+        }

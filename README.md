@@ -253,7 +253,7 @@ to get as close as possible.
 
 Concretely, what differs:
 
-- **Graphviz does the layout, not UniFi.** The shape of the tree is the same, but
+- **Graphviz does the layout, not UniFi.** The tree is connected the same way, but
   the order siblings appear in and the precise spacing are Graphviz's decisions.
 - **Link routing is orthogonal but not identical.** Corners, channel spacing and
   where a line breaks are up to the renderer.
@@ -314,6 +314,53 @@ macvlan) have no `sw_mac`/`ap_mac` in the controller's data. They're anchored to
 an explicit placeholder node rather than left floating (which looks like a bug)
 or attached to a guessed parent (which would invent topology that doesn't exist).
 
+## Sharing a map: `--obfuscate`
+
+A rendered map is not anonymous. Labels carry hostnames, addresses, VLAN names
+and your WAN address, and an SVG holds all of it as selectable text. That makes
+it awkward to ask for help with a layout problem.
+
+```bash
+unifi-map render --obfuscate --theme dark
+```
+
+![The same real network, obfuscated](docs/images/example-obfuscated-dark.png)
+
+*A real network, obfuscated. Every device is a pseudonym, addresses are
+renumbered, and the connections, roles and artwork are untouched.*
+
+**Replaced:** hostnames and device names, IP addresses, MAC addresses (including
+the node identifiers in the DOT and draw.io output, which are derived from them),
+network and VLAN names, SSIDs, the ISP name and the WAN address.
+
+**Kept**, because otherwise the result is useless for the purpose: how everything
+is connected, device roles, models and artwork, port numbers, counts, and which
+clients sit on which network. Addresses are renumbered but stay grouped, so the
+VLAN structure is still visible.
+
+Pseudonyms are stable. The same device is `client-07` in every render of the same
+snapshot, so a follow-up screenshot lines up with the first. They are assigned by
+a fixed ordering rather than derived from the real name, since a hash of a short
+hostname is trivially reversible.
+
+### What it does not hide
+
+Two things worth understanding before you post a map publicly:
+
+- **The artwork still shows what your devices are.** A TV, a thermostat, a NAS
+  and a games console are all recognisable from their pictures, and some carry
+  brand marks. If that matters, add `--icons builtin` for geometric shapes and no
+  artwork at all.
+- **`--title` is yours.** If you pass a title containing your name or your
+  network's name, it will be rendered exactly as given. The default is a neutral
+  "Network map".
+
+This runs on the model before anything is drawn, so no renderer can leak a value
+that has already been removed. A test renders SVG, DOT and draw.io and asserts
+that not one original hostname, address, MAC, network name or SSID appears in any
+of them, because a mode that cleans one format and leaves another readable would
+be worse than none at all.
+
 ## Planned: manual overrides
 
 Three things the tool can't get right on its own, so you'll be able to state them
@@ -347,12 +394,6 @@ a worked example.
 - **An infrastructure view** alongside the topology view: gateway, switches, APs
   and their uplinks presented as a rack/cabling diagram rather than a client
   tree. `--no-clients` is a rough approximation of this today.
-- **An obfuscate mode.** A rendered map carries hostnames, addresses and VLAN
-  names as selectable text, which makes it awkward to share when you want help
-  with a layout problem. `--obfuscate` would strip the identifying detail while
-  keeping the structure, roles and artwork that make the diagram worth looking
-  at. Until it exists, redact by hand or reproduce the problem against the demo
-  dataset.
 
 ## Artwork, licensing and attribution
 
@@ -412,7 +453,7 @@ the controller's `model` string doesn't reliably match the catalog's shortnames
 (a USW Pro HD 24 PoE reports `USWED72` while the catalog calls it `USPH24P`).
 
 The graph is built from `stat/device` uplinks plus `stat/sta` and `networkconf`
-rather than the `v2/.../topology` endpoint, whose shape shifts between
+rather than the `v2/.../topology` endpoint, whose structure shifts between
 controller versions. That endpoint is still fetched and cached in case it
 becomes useful.
 

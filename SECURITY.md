@@ -64,11 +64,11 @@ each dead end.
 **Read-only roles exist.** `GET /proxy/users/api/v2/roles` shows
 `custom_administrator` roles carrying permissions like
 `{"network.management": ["readonly"], "protect.management": ["readonly"]}`, which
-is exactly the shape this tool needs. So the permission model can express it.
+is exactly what this tool needs. So the permission model can express it.
 
 **But scoping only exists for admins.** There is no way to give a plain user
 limited application permissions; you get there by making them an admin and then
-restricting the admin. That is a strange shape, and it is the reason the answer
+restricting the admin. That is an awkward arrangement, and it is the reason the answer
 to "why not just use a normal account" is not "you should".
 
 **A key can only be created by the account that will own it.** This is enforced

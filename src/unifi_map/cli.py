@@ -23,6 +23,7 @@ from .client import Snapshot, UniFiClient, UniFiError
 from .config import ConfigError, load_config
 from .layout import GraphvizError, GraphvizMissing, compute_layout, run_dot, stagger
 from .model import Kind, Topology, build_topology, client_networks, filter_by_network
+from .obfuscate import id_map, obfuscate
 from .render_dot import ICON_SETS, LAYOUTS, Style, render_dot
 from .render_drawio import render_drawio
 from .svg_post import inline_svg_images
@@ -273,13 +274,23 @@ def cmd_render(args: argparse.Namespace) -> int:
     if style.icons == "unifi":
         icons = _resolve_icons(topo, store, style.theme)
 
+    if args.obfuscate:
+        # Artwork is resolved first and then carried across, because UniFi
+        # hardware appearing as a client is matched on its hostname and
+        # scrubbing that first would lose the picture.
+        mapping = id_map(topo)
+        icons = {mapping[k]: v for k, v in icons.items() if k in mapping}
+        topo = obfuscate(topo)
+        log.info("Obfuscated: names, addresses, MACs, network names and SSIDs replaced.")
+
+    title = args.title or "Network map"
     subtitle = _subtitle(tally)
     formats = list(dict.fromkeys(args.formats))
     stem = _safe_name(args.name)
 
     log.info("Full map:")
     _write_outputs(
-        render_dot(topo, args.title, style, icons, subtitle),
+        render_dot(topo, title, style, icons, subtitle),
         topo,
         args.out_dir,
         stem,
@@ -298,7 +309,7 @@ def cmd_render(args: argparse.Namespace) -> int:
             view = filter_by_network(topo, name)
             log.info("Network view %r:", name)
             _write_outputs(
-                render_dot(view, f"{args.title}: {name}", style, icons, _subtitle(view.counts())),
+                render_dot(view, f"{title}: {name}", style, icons, _subtitle(view.counts())),
                 view,
                 args.out_dir,
                 f"{stem}-{_safe_name(name)}",
@@ -387,7 +398,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Never reach the network for artwork; use only what is already cached",
     )
     render_flags.add_argument("--name", default="network-map", help="Output filename stem")
-    render_flags.add_argument("--title", default="Network map", help="Diagram title")
+    render_flags.add_argument(
+        "--obfuscate",
+        action="store_true",
+        help="Replace hostnames, addresses, MACs, network names and SSIDs with "
+        "stable placeholders, keeping topology, roles and artwork intact, so the "
+        "diagram can be shared",
+    )
+    render_flags.add_argument(
+        "--title",
+        default=None,
+        help="Diagram title (default: Network map). Note that --obfuscate cannot "
+        "clean a title you supply yourself",
+    )
     render_flags.add_argument(
         "--no-clients", action="store_true", help="Infrastructure only, no clients"
     )

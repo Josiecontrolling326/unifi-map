@@ -211,69 +211,32 @@ distinguishable from what the controller reported.
   Do not repeat: greps for `isp*Logo|Icon|Image|Brand`, `/isp` templates or
   carrier/provider identifiers across `/275`, `/905`, `/989`, `/main~0`,
   `/main~2` and the legacy `/manage/` bundles. Also do not look for a webpack
-  chunk id-to-hash map; the React bundles do not expose one in the usual shape.
+  chunk id-to-hash map; the React bundles do not expose one in the usual form.
 - **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
   and uplinks, separate from the client topology. `--no-clients` approximates it.
 - **Apply overrides** (see above).
-- **An obfuscate mode**, probably the highest value item on this list. `--obfuscate`
-  would strip identifying detail from the output so somebody can share a layout
-  problem, or a wrong-artwork problem, without publishing their network. Right
-  now `SECURITY.md` and the issue templates have to tell people to redact by hand
-  or reproduce against the demo data, which is a poor substitute.
+- **Obfuscation is built** (`--obfuscate`, `obfuscate.py`). Notes for changing it:
 
-  What must go: hostnames, IP addresses, MAC addresses, network and VLAN names,
-  SSIDs, the ISP name and the WAN address.
-
-  What must stay, because otherwise the output is useless for the purpose: the
-  shape of the topology, device roles and models, artwork, port numbers, counts,
-  and which clients sit on which network. The point is a diagram that is still
-  diagnosable.
-
-  Traps worth knowing before starting:
-
-  - **Strip at the model level, not the drawing level.** An SVG carries its
-    labels as selectable text, and `.drawio` and `.dot` carry them too. Anything
-    that paints over the top is not redaction.
-  - **Every format, or none.** A mode that cleans the SVG and leaves `.drawio`
-    readable is worse than no mode at all, because it creates false confidence.
-    The test for this should render every format and assert that not one original
-    identifier from the fixtures appears anywhere in any of them.
-  - **Labels need to be stable, not random.** The same device should keep the same
-    pseudonym (`ap-1`, `client-07`) across re-renders, or a follow-up screenshot
-    in the same conversation will not line up. Derive them from a stable sort,
-    not from a hash of the real name, which for a short hostname is trivially
-    reversible.
-  - **Renumber addresses while preserving grouping.** Mapping each real subnet
-    onto a documentation range keeps the VLAN structure visible, which is often
-    the thing being discussed.
-  - **Vendor is a judgement call.** An OUI of Ubiquiti drives the hardware
-    lookup, and vendor strings help diagnosis, but they are mildly identifying.
-    Decide deliberately and document it.
-  - Do not forget the title block and subtitle, or the Internet node, which
-    carries the ISP name and the WAN address.
-
-- **Least-privilege API keys: resolved, and the answer is no.** Do not reopen
-  this without a new UniFi release to test against. Verified 2026-07-30 on
-  Network 10.5.67:
-
-  - A key inherits its account. `key_permissions` is empty on every key, while
-    `permissions` and `scopes` mirror the creating account.
-  - Scoping exists only for admins, as `custom_administrator` roles. Ordinary
-    users cannot be given limited application permissions.
-  - `POST /proxy/users/api/v2/user/{id}/keys` as a super admin returns 403
-    `CODE_OPERATION_FORBIDDEN`, "cannot create api key for others". Confirmed
-    against two separate read-only accounts, one of them ACTIVE and local-only,
-    so it is not an artefact of a locked account.
-  - A read-only account signed into the interface is not offered the API key
-    section at all.
-
-  All three routes are closed, so the tool cannot be given a narrower credential
-  than it currently asks for. This is documented in `SECURITY.md` under why the
-  credential is broader than the tool needs, along with Ubiquiti's own open
-  community request for read-only keys. If a future release changes this, the
-  test is: create a limited admin, mint a key as that account, run
-  `unifi-map fetch`, and record which of the ten requests survive. The `manage/`
-  icon font paths and the Protect camera list are the likely casualties.
+  - It runs on the model before anything is drawn, so a renderer cannot leak a
+    value that is already gone. Keep it that way rather than filtering output.
+  - Node ids are derived from MAC addresses and appear in DOT identifiers and
+    draw.io cell ids, so ids are remapped too, not just labels.
+  - **Artwork is resolved before scrubbing**, and the icon dictionary is remapped
+    through `id_map()`. UniFi hardware appearing as a client is matched on its
+    hostname, so obfuscating first silently lost the camera's artwork. That is
+    why `id_map()` is public.
+  - A client's `detail` is the SSID when it has no fingerprint, and a catalogue
+    product name when it does, so `detail` is dropped only when `dev_id` is None.
+  - Pseudonyms come from a fixed ordering, never from a hash of the real name,
+    which for a short hostname is reversible.
+  - The Internet node's label is the ISP name and its ip is the WAN address.
+    Both are replaced. An early version kept the label by mistake.
+  - `test_nothing_leaks_into_any_output_format` renders SVG, DOT and draw.io and
+    asserts no original value survives in any of them. Extend it when adding a
+    format; a partially clean export is worse than none.
+  - **Known limit, documented in the README:** artwork still shows what a device
+    is, brand marks included. `--icons builtin` is the stronger option, and
+    `--title` is passed through untouched.
 
 - **GitHub Actions.** There is no CI. The repo had a `.gitlab-ci.yml` briefly,
   removed because how the GitLab copy is maintained is local administration;
@@ -283,7 +246,7 @@ distinguishable from what the controller reported.
   network**, so CI needs no secrets, no controller and no credentials. Nothing has
   to be arranged before it can run.
 
-  Rough shape:
+  Rough outline:
 
   - `make check` on push and pull request. That is `ruff format --check`,
     `ruff check` and `pytest`.
@@ -342,7 +305,7 @@ Specifically not verified, and currently caveated in the README:
 - Multi-site controllers. The claim that a hand-created site's internal name is
   an opaque string is general UniFi knowledge, not an observation. This is why
   the docs point at the URL and `GET /proxy/network/api/self/sites` instead of
-  describing the value's shape.
+  describing what the value looks like.
 - That Lucid imports the `.drawio` output. draw.io itself is confirmed working.
 
 If any of these gets verified, tighten the README instead of leaving a hedge in
