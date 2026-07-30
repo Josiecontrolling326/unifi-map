@@ -47,34 +47,74 @@ What follows:
 
 - **Create the key under the least privileged admin account you can**, not under
   your super admin. The key is as powerful as the account behind it.
-- **A key cannot be scoped, and in practice the account may not be either.**
+- **A key cannot be scoped, and the account probably cannot be either.**
   Inspecting keys through `GET /proxy/users/api/v2/user/self/keys` shows a
   `key_permissions` field that is empty on every key, alongside a `permissions`
   map reading `{"network.management": ["admin"]}` and a `scopes` list containing
-  everything the account can do. Nothing populates the per-key field, so a key
-  is simply the account.
+  everything the account can do. Nothing populates the per-key field, so a key is
+  simply the account that made it.
 
-  Account-level read-only roles definitely exist. `GET
-  /proxy/users/api/v2/roles` shows `custom_administrator` roles carrying
-  permissions like `{"network.management": ["readonly"],
-  "protect.management": ["readonly"]}`, which is exactly what this tool needs.
-  Where the interface for creating one lives is another matter: on the version
-  tested it could not be found, though roles of that shape had been created on
-  the same console both recently and years earlier. It may sit behind a specific
-  application's settings, or apply only to local accounts, or have moved between
-  releases.
+### Why this asks for more access than it uses
 
-  So the practical guidance is uncomfortable but honest: **assume the key you
-  give this tool carries the full permissions of the account that created it.**
-  Prefer a dedicated account over your own, keep the key in a secrets store
-  rather than a file if you have one, and revoke it rather than rotate a password
-  if it leaks. If you do find the interface for a read-only administrator on your
-  version, use it, and a note saying where would be a welcome issue.
-- **Keys are individually revocable**, which is the main reason they are the only
-  supported credential here. Revoking one does not disturb an account password.
-- **A key also reveals who owns it.** `GET /proxy/network/api/self` returns the
-  creating admin's name and email address. This tool never calls that endpoint,
-  but anyone holding the key can.
+This is the obvious objection, and it deserves a straight answer rather than a
+shrug. The short version: UniFi does not appear to offer a credential narrow
+enough to match what the tool does, and the places you would expect to find one
+each dead end.
+
+**Read-only roles exist.** `GET /proxy/users/api/v2/roles` shows
+`custom_administrator` roles carrying permissions like
+`{"network.management": ["readonly"], "protect.management": ["readonly"]}`, which
+is exactly the shape this tool needs. So the permission model can express it.
+
+**But scoping only exists for admins.** There is no way to give a plain user
+limited application permissions; you get there by making them an admin and then
+restricting the admin. That is a strange shape, and it is the reason the answer
+to "why not just use a normal account" is not "you should".
+
+**A key can only be created by the account that will own it.** This is enforced
+by the platform, not merely hidden in the interface. A super admin can *read*
+another user's keys through `GET /proxy/users/api/v2/user/{id}/keys`, but the
+matching POST is refused outright:
+
+```json
+{"code": -5, "codeS": "CODE_OPERATION_FORBIDDEN",
+ "msg": "Action not allowed.", "error": "cannot create api key for others"}
+```
+
+**And a restricted account cannot create one for itself.** Signed in as a
+read-only user, the API key interface is not available. So that route closes too.
+
+Putting those together, on the version tested there is no path to a read-only
+API key at all:
+
+1. Permissions can only be scoped by making the account an admin and then
+   restricting it. There is no scoping for ordinary users.
+2. A privileged account cannot mint a key on a restricted account's behalf. The
+   platform refuses.
+3. A restricted account cannot mint one for itself. The interface does not offer
+   it.
+
+That is not a design decision by this tool. It is the credential UniFi is
+willing to issue.
+
+**A regular, non-admin user is not a way out either.** Local-only accounts are an
+admin concept. Creating an ordinary user means a cloud login, so you would be
+maintaining an email address for the sole purpose of holding an API key, and it
+is entirely untested whether the resulting key would even work against the local
+API.
+
+Ubiquiti's own community has an open thread asking for read-only API keys:
+<https://community.ui.com/questions/Read-Only-API-key-yet/940e5b06-bc4d-4742-9760-cbb6f8882f60>
+
+So the honest position is: **assume the key you give this tool carries the full
+permissions of the account that created it.** Use a dedicated key rather than
+sharing one, keep it in a secrets store if you have one, and revoke it rather
+than rotating a password if it leaks. The tool's own behaviour is the part you
+can actually verify, and it is one command away.
+
+If you find a version or a path where a genuinely restricted key works, that is a
+very welcome issue. The tool only reads, so it should work; nobody has been able
+to construct the credential to prove it.
 
 If you want to confirm the read-only claim rather than take it on trust, grep the
 source for a mutating request:

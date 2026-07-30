@@ -252,45 +252,28 @@ distinguishable from what the controller reported.
   - Do not forget the title block and subtitle, or the Internet node, which
     carries the ISP name and the WAN address.
 
-- **Verify a least-privilege API key path.** A key inherits the creating
-  account's permissions. Verified 2026-07-30 that a key made under a super admin
-  reports `is_super: true` from `GET /proxy/network/api/self`, and that a POST
-  with it fails validation rather than authorisation, so it can write. This tool
-  only reads, so a read-only admin's key should be enough, but that has never
-  been tested end to end.
+- **Least-privilege API keys: resolved, and the answer is no.** Do not reopen
+  this without a new UniFi release to test against. Verified 2026-07-30 on
+  Network 10.5.67:
 
-  Established 2026-07-30, after failing to find anywhere to scope a key: **you
-  cannot scope a key, you scope the account.** `GET /proxy/users/api/v2/roles`
-  works with an API key and shows UniFi auto-minting a private role per limited
-  admin, named like `role_private_1783895702`, carrying permissions such as
-  `{"network.management": ["readonly"], "protect.management": ["readonly"]}`.
-  Read-only roles of exactly the shape this tool needs already exist in the wild,
-  so this is account configuration rather than a missing UniFi feature.
+  - A key inherits its account. `key_permissions` is empty on every key, while
+    `permissions` and `scopes` mirror the creating account.
+  - Scoping exists only for admins, as `custom_administrator` roles. Ordinary
+    users cannot be given limited application permissions.
+  - `POST /proxy/users/api/v2/user/{id}/keys` as a super admin returns 403
+    `CODE_OPERATION_FORBIDDEN`, "cannot create api key for others". Confirmed
+    against two separate read-only accounts, one of them ACTIVE and local-only,
+    so it is not an artefact of a locked account.
+  - A read-only account signed into the interface is not offered the API key
+    section at all.
 
-  Endpoint moves worth knowing: `rest/admin` is 404 on 10.5.67 and admin data
-  lives under `/proxy/users/api/v2/` now. `/api/users` and `/api/roles` are 404.
-  `/proxy/users/api/v2/users` returns 200 but does not expose role assignment in
-  an obvious field, so do not burn time there.
-
-  Then it got narrower still. `GET /proxy/users/api/v2/user/self/keys` shows
-  `key_permissions` empty on every key, with `permissions` reading
-  `{"network.management": ["admin"]}` and `scopes` listing everything the account
-  can do. **Per-key scoping is not populated by anything**, so a key is the
-  account. Jason could not find any interface for creating a scoped account
-  either, despite two `custom_administrator` roles existing on his own console,
-  one made in 2022 and one in July 2026.
-
-  So the blocker is not knowledge, it is a UI that could not be located. Do not
-  spend more read-only probing on it; the API surface has been mapped. The useful
-  next step is either finding that interface on a current release, or accepting
-  that least privilege is not reachable and leaving `SECURITY.md` telling people
-  to treat the key as equal to its account. If it ever is reachable, the test is
-  still: mint the key, run `unifi-map fetch`, and record which of the ten requests
-  survive. The `manage/` icon font paths and the Protect camera list are the
-  likely casualties.
-
-  Do not probe this with live writes against a production controller. The write
-  test above should not have been run without asking.
+  All three routes are closed, so the tool cannot be given a narrower credential
+  than it currently asks for. This is documented in `SECURITY.md` under why the
+  credential is broader than the tool needs, along with Ubiquiti's own open
+  community request for read-only keys. If a future release changes this, the
+  test is: create a limited admin, mint a key as that account, run
+  `unifi-map fetch`, and record which of the ten requests survive. The `manage/`
+  icon font paths and the Protect camera list are the likely casualties.
 
 - **GitHub Actions.** There is no CI. The repo had a `.gitlab-ci.yml` briefly,
   removed because how the GitLab copy is maintained is local administration;

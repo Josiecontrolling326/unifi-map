@@ -96,6 +96,10 @@ permission is enough.
 A key is the only supported credential. There is no login and no session, so
 nothing has to be kept alive or refreshed.
 
+A key inherits the permissions of the account that created it, and UniFi does not
+appear to offer a narrower one. `SECURITY.md` explains why, what was tried, and
+what this tool actually requests, which is ten GET requests and nothing else.
+
 ### `UNIFI_HOST`
 
 Just the host, optionally with a port: `unifi.example.com`, `192.168.1.1`, or
