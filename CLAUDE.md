@@ -260,8 +260,45 @@ headings, check what was in between.
   - **Cache per colour, like the cloud does**, or a dark icon lands on a dark
     canvas.
 
-- **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
-  and uplinks, separate from the client topology. `--no-clients` approximates it.
+- **Infrastructure view.** The console has one, and it is a different diagram
+  rather than the client map with clients removed, which is all `--no-clients`
+  gives today. Described from a screenshot of the real thing, 2026-07-30.
+
+  What it shows, top to bottom:
+
+  - **One card per WAN**, side by side above the gateway, each with the ISP
+    brand mark, the WAN label ("WAN2 · Failover Only"), the public address and
+    an uptime percentage. So the Internet is several nodes here, not one.
+  - **A port badge at both ends of every link**, which is the biggest departure.
+    A small rounded chip carrying an icon and the port number: a globe for WAN
+    ports, a chevron down on the parent's side, a chevron up on the child's,
+    and a literal `SFP` chip for fibre. Our maps label a link once, in the
+    middle.
+  - **Badge and edge colour encode link speed**, green/yellow/grey/blue, with
+    the edge matching its badge.
+  - **Device cards carry live stats**: CPU and memory percentages with small
+    icons, and `STP Priority` where it applies.
+  - **Offline devices are dimmed** and swap their stats for `Last Seen: 30d 3h`.
+  - **An `STP Root` crown** on whichever switch holds it.
+  - Edges are curved beziers, and there are no clients at all.
+
+  Every one of those is already in `stat/device`, verified against the live
+  snapshot rather than assumed:
+
+  | Shown | Field |
+  | --- | --- |
+  | CPU, memory | `system-stats.cpu` / `.mem` (matched the screenshot's 3.8 / 78.7) |
+  | Last seen | `last_seen`, epoch seconds |
+  | STP priority | `stp_priority` |
+  | STP root | `root_switch` holds the **root's MAC**; a device is the root when it equals its own `mac` |
+  | Port at each end | `uplink.uplink_remote_port` for the parent's, and the topology graph's `downlinkPortNumber` / `uplinkPortNumber` |
+  | Speed, media | `port_table[].speed` and `.media` (`SFP+`, `2P5GE`, `FE`) |
+  | WAN cards | `stat/health` WAN subsystems, or `ispData` from a support file |
+
+  So this is a rendering job, not a data-gathering one. The parts that need
+  thought are the two-badges-per-edge layout, which Graphviz has no direct
+  notion of (head and tail labels are the closest), and whether this becomes a
+  third `--layout` or a separate output.
 
 - **Decide what "making a release" actually means here.** Today it is: edit
   `__version__`, write the CHANGELOG entry, tag, push, mirror. That is a version
