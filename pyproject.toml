@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unifi-map"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Export a UniFi network topology as zoomable vector diagrams and editable draw.io files"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,10 @@ unifi-map = "unifi_map.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# One place defines the version. Duplicating it here is how the two drift.
+[tool.setuptools.dynamic]
+version = {attr = "unifi_map.__version__"}
 
 [tool.ruff]
 line-length = 100

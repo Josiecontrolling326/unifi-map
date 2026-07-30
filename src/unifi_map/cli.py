@@ -18,6 +18,7 @@ import logging
 import sys
 from pathlib import Path
 
+from . import __version__
 from .assets import AssetStore, IconAsset
 from .client import Snapshot, UniFiClient, UniFiError
 from .config import ConfigError, load_config
@@ -362,6 +363,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--version", action="version", version=f"unifi-map {__version__}")
 
     sub = parser.add_subparsers(dest="command", required=True)
 

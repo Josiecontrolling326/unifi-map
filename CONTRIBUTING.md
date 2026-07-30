@@ -86,6 +86,17 @@ Ordinary Python, `ruff` settled, 100 column lines, modern type hints.
 Comments should explain why, not what. The reason a line exists, the constraint
 it satisfies, or the bug it prevents. Not a restatement of the code.
 
+## Versioning
+
+Semantic versioning, currently pre-1.0, so the command line interface is not
+stable yet: flags and defaults may change between minor versions while the tool
+settles.
+
+The version lives in `src/unifi_map/__init__.py` and `pyproject.toml` reads it
+from there, so there is one number to change rather than two to keep in step.
+Note the change in `CHANGELOG.md` under Unreleased; a maintainer moves it under a
+version at release time.
+
 ## Architecture in one paragraph
 
 Each stage owns one concern and nothing downstream of `model.py` sees raw

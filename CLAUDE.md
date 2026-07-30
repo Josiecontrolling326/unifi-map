@@ -296,6 +296,13 @@ Specifically not verified, and currently caveated in the README:
 If any of these gets verified, tighten the README instead of leaving a hedge in
 place. If one turns out broken, it is a bug, not a documented limitation.
 
+## Versioning
+
+Semantic versioning, pre-1.0. `src/unifi_map/__init__.py` holds `__version__` and
+`pyproject.toml` reads it via `[tool.setuptools.dynamic]`, so never write the
+number in two places. Record user-visible changes in `CHANGELOG.md` under
+Unreleased as they land, rather than reconstructing them at release time.
+
 ## Data hygiene
 
 `cache/` and `out/` are gitignored; snapshots are written `0600`. A snapshot is a
