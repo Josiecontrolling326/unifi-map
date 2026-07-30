@@ -69,6 +69,9 @@ class Node:
     # "camera" when Protect reports this MAC as one. Used to disambiguate a
     # hostname that matches several products.
     hardware_type: str | None = None
+    # Internet node only. The upstream provider's autonomous system number,
+    # which is the join key to Ubiquiti's ISP brand marks.
+    asn: int | None = None
 
     @property
     def glyph_name(self) -> str | None:
@@ -351,18 +354,19 @@ def _resolve_network(
     return None, vlan
 
 
-def wan_info(snapshot: Snapshot) -> tuple[str | None, str | None]:
-    """(isp_name, wan_ip) from the health endpoint's WAN subsystem.
+def wan_info(snapshot: Snapshot) -> tuple[str | None, str | None, int | None]:
+    """(isp_name, wan_ip, asn) from the health endpoint's WAN subsystem.
 
     The controller knows who the upstream provider is, so the Internet node can
-    say "Carl's Discount Internet & Tackle" rather than a generic label.
+    say "Carl's Discount Internet & Tackle" rather than a generic label, and the
+    ASN alongside it is what Ubiquiti key their provider brand marks on.
     """
     for entry in unwrap(snapshot.get("health")):
         if entry.get("subsystem") != "wan":
             continue
         isp = entry.get("isp_name") or entry.get("isp_organization")
-        return (str(isp) if isp else None, entry.get("wan_ip"))
-    return None, None
+        return (str(isp) if isp else None, entry.get("wan_ip"), _coerce_int(entry.get("asn")))
+    return None, None, None
 
 
 def build_topology(
@@ -435,9 +439,7 @@ def build_topology(
             topo.edges.append(Edge(src=mac, dst="internet", label="WAN"))
 
     if has_internet:
-        isp, wan_ip = wan_info(snapshot)
-        # TODO: also fetch an ISP logo when one can be sourced. The controller
-        # reports only the name, and no icon URL has been located for it yet.
+        isp, wan_ip, asn = wan_info(snapshot)
         topo.add(
             Node(
                 id="internet",
@@ -445,6 +447,7 @@ def build_topology(
                 kind=Kind.INTERNET,
                 ip=wan_ip,
                 detail="Internet" if isp else None,
+                asn=asn,
             )
         )
 

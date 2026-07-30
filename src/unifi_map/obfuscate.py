@@ -135,6 +135,10 @@ def obfuscate(topo: Topology) -> Topology:
             dev_id=node.dev_id,
             oui=node.oui,
             hardware_type=node.hardware_type,
+            # Dropped, unlike the other artwork keys. An ASN names the ISP as
+            # squarely as `isp_name` does, and it would redraw their brand mark
+            # on a map whose whole point is that it can be shared.
+            asn=None,
         )
 
     edges = [

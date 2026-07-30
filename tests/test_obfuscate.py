@@ -43,6 +43,9 @@ def identifying(devices: dict, clients: dict, networkconf: dict) -> dict:
                 "subsystem": "wan",
                 "isp_name": "Carls Discount Internet",
                 "wan_ip": "198.51.100.42",
+                # Names the provider as squarely as the name does, and is the
+                # key to their brand mark.
+                "asn": 64500,
             }
         ]
     }
@@ -67,6 +70,7 @@ def identifying(devices: dict, clients: dict, networkconf: dict) -> dict:
     secrets = [
         "Carls Discount Internet",
         "198.51.100.42",
+        "64500",
         "secret-laptop",
         "MySecretSSID",
         "nas",
@@ -252,6 +256,24 @@ class TestScrubbing:
         # Each network occupies one prefix, so the VLAN structure stays visible.
         for network, prefixes in by_net.items():
             assert len(prefixes) == 1, f"{network} spread across {prefixes}"
+
+    def test_the_asn_is_dropped_so_no_isp_brand_mark_can_be_drawn(
+        self, devices: dict, networkconf: dict
+    ):
+        health = {
+            "data": [
+                {"subsystem": "wan", "isp_name": "Some ISP", "wan_ip": "9.9.9.9", "asn": 64500}
+            ]
+        }
+        topo = obfuscate(
+            build_topology(
+                Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+            )
+        )
+        # Artwork keys are normally kept, because they say what hardware is
+        # rather than whose it is. This one is the exception: it would redraw
+        # the provider's logo onto a map meant for publishing.
+        assert topo.nodes["internet"].asn is None
 
     def test_the_wan_address_becomes_a_documentation_address(
         self, devices: dict, networkconf: dict

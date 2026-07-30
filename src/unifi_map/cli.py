@@ -222,6 +222,19 @@ def _resolve_icons(topo: Topology, store: AssetStore, theme) -> dict[str, IconAs
     device_found = sum(1 for a in by_sysid.values() if a is not None)
     log.info("Artwork: %d/%d UniFi devices", device_found, device_total)
 
+    # --- the upstream provider ---
+    for node in topo.nodes.values():
+        if node.kind is not Kind.INTERNET:
+            continue
+        logo = store.isp_logo(node.asn) if node.asn is not None else None
+        if logo is not None:
+            icons[node.id] = logo
+            log.info("Artwork: ISP brand mark for AS%d", node.asn)
+        elif (cloud := store.internet_icon(theme.text_muted)) is not None:
+            # Plenty of providers have no brand mark, so a cloud reads better
+            # than the bare polygon the shape renderer would leave behind.
+            icons[node.id] = cloud
+
     # --- clients ---
     client_nodes = [n for n in topo.nodes.values() if n.glyph_name is not None]
     if not client_nodes:
@@ -390,6 +403,20 @@ def cmd_render(args: argparse.Namespace) -> int:
         # scrubbing that first would lose the picture.
         mapping = id_map(topo)
         icons = {mapping[k]: v for k, v in icons.items() if k in mapping}
+        # The one piece of artwork that must not survive. Every other icon says
+        # what a device is; the ISP brand mark says who the owner buys transit
+        # from, and hiding the name while drawing the logo would be theatre.
+        # `obfuscate()` clears the ASN, but this dict was built before that ran,
+        # so swap the mark for the generic cloud rather than just dropping it.
+        cloud = store.internet_icon(style.theme.text_muted)
+        for node in topo.nodes.values():
+            if node.kind is not Kind.INTERNET:
+                continue
+            key = mapping.get(node.id, node.id)
+            if cloud is not None:
+                icons[key] = cloud
+            else:
+                icons.pop(key, None)
         topo = obfuscate(topo)
         log.info("Obfuscated: names, addresses, MACs, network names and SSIDs replaced.")
 

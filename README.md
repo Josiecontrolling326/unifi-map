@@ -577,9 +577,6 @@ guidance on choosing images.
 
 ## Also planned
 
-- **An ISP logo on the Internet node.** The controller already reports
-  `isp_name` (the node is labelled with it, "Carl's Discount Internet & Tackle" rather than
-  "Internet"), but no source for a provider logo has been located yet.
 - **An infrastructure view** alongside the topology view: gateway, switches, APs
   and their uplinks presented as a rack/cabling diagram rather than a client
   tree. `--no-clients` is a rough approximation of this today.

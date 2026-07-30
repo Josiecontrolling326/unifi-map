@@ -78,6 +78,31 @@ controller JSON.
   `/main~2.*.js`), and that is where the real image URLs live. When hunting an
   asset, find it in the bundle the browser loads rather than inferring from a
   failed guess.
+- **ISP brand marks are `static.ui.com/asn/{asn}_{size}.png`**, keyed on the
+  `asn` that `stat/health` reports beside `isp_name`. Sizes 257, 129, 101, 51
+  and 25 square. There is no provider table and none is wanted: the ASN is the
+  whole lookup.
+
+  Unlike the `/fingerprint/` paths on the same host, a missing ASN or size
+  returns a genuine 404 here, so absence is detectable. Do not carry the
+  fingerprint paths' "200 means nothing" assumption over to this one.
+
+  This was hunted through the web bundles for a long time and was never there.
+  It was found in one grep of a **support file's own logs**: the speed-test
+  daemon logs the URL it builds as `ispImg`. The bundle search is on the
+  do-not-repeat list further down and should have been abandoned much earlier
+  for a search of data the device had already written down.
+- **The Internet node falls back to a locally drawn cloud**, not to a bare
+  polygon. `_render_cloud()` is a few Pillow ellipses and a bar, ours rather than
+  Ubiquiti's, so it needs no network and raises no licensing question. Every
+  circle's lowest point sits exactly on the baseline; a puff reaching past it
+  leaves a lump hanging off the flat bottom edge.
+- **`--obfuscate` drops the ASN**, alone among the artwork keys. `sysid`,
+  `dev_id` and `oui` all survive because they say what hardware *is*; an ASN says
+  who the owner buys transit from, and drawing the provider's logo on a map
+  meant for publishing would give the game away no matter what the label said.
+  The icon dict is built before `obfuscate()` runs, so `cmd_render` also swaps
+  the mark for the cloud; clearing `Node.asn` alone is not enough.
 - Artwork must degrade: no network, no Pillow, or unknown hardware all fall back
   to the shape renderer rather than failing the run.
 
@@ -197,49 +222,6 @@ Implemented end to end: schema, loader, `resolve()` and `apply()`. Notes:
 Restored after being deleted by accident in 9b18a1a, where a section replacement
 spanned two headings and took this with it. If you replace a range between
 headings, check what was in between.
-
-- **ISP logo on the Internet node.** `wan_info()` reads `isp_name` from
-  `stat/health`, so the node is already labelled ("Carl's Discount Internet & Tackle"). The logo is
-  real: the UniFi infrastructure view renders a brand mark beside each WAN entry,
-  a brand mark for the primary on WAN1 and another for the backup on WAN2 (in
-  testing, Carl's Discount Internet & Tackle and Cruelty Cable Co.). Both are present, so
-  expect a systematic lookup keyed on something like the ISP name or ASN, not a
-  sparse hand-maintained table.
-
-  Where it is *not*: searched `/275`, `/905`, `/989`, `/main~0`, `/main~2` and the
-  legacy `/manage/` bundles for `isp*Logo|Icon|Image|Brand`, `/isp` URL
-  templates, and carrier/provider logo identifiers. Only hits were
-  `${NCA}/network-cloud/v2/isp-metrics`, an `/isp-viewer` route, and a legacy
-  `ispThroughput.pug`. None of them build an image URL.
-
-  What `images.svc.ui.com` turned out to be: a generic image resizing proxy,
-  `https://images.svc.ui.com/?u=<source-url>&w=<px>&q=<quality>`, built by a
-  shared `<img>` component in `main~2` that also takes `srcFallbackOffline` and
-  `srcFallbackBundled`. It is not ISP-specific and resolves nothing on its own;
-  the real logo URL has to arrive as data in the `u` parameter.
-
-  The only ISP data reference in the bundles is
-  `${NCA}/network-cloud/v2/isp-metrics`, a **cloud** endpoint, so the logo URL
-  may well be cloud-provided. But the local `stat/health` WAN subsystem does
-  carry an **`asn`** alongside `isp_name`, `isp_organization` and `wan_ip`, and
-  an ASN is exactly the sort of key a brand-logo service keys on. That is
-  available from a local API key, so do not write this off as cloud-only without
-  testing it.
-
-  Concrete next step: take the ASN from `stat/health` (a real one, not a
-  documentation value) and see whether any
-  Ubiquiti-hosted path resolves a logo from it, then feed whatever URL that
-  yields through the `images.svc.ui.com/?u=...` proxy. If nothing local resolves
-  it, only then treat cloud as the answer.
-
-  A support file carries the same ASN in `ispData`, and `support.py` passes it
-  through into the `health` payload for this reason, so the experiment can be
-  run against an archive without touching a controller.
-
-  Do not repeat: greps for `isp*Logo|Icon|Image|Brand`, `/isp` templates or
-  carrier/provider identifiers across `/275`, `/905`, `/989`, `/main~0`,
-  `/main~2` and the legacy `/manage/` bundles. Also do not look for a webpack
-  chunk id-to-hash map; the React bundles do not expose one in the usual form.
 
 - **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
   and uplinks, separate from the client topology. `--no-clients` approximates it.

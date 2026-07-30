@@ -122,6 +122,14 @@ CLIENT_ICON_SIZES = ("257x257", "129x129", "101x101")
 # static.ubnt.com serve it identically.
 CLIENT_CATALOG_URL = "https://static.ui.com/fingerprint/0/devicelist.json"
 
+# ISP brand marks, keyed purely on the autonomous system number that
+# `stat/health` already reports. The console's own speed-test daemon logs the
+# URL it builds for this as `ispImg`, which is how the pattern was found after
+# a long search through the web bundles turned up nothing. Largest first;
+# unlike the fingerprint paths, a missing ASN or size returns a real 404.
+ISP_LOGO_URL = "https://static.ui.com/asn/{asn}_{size}.png"
+ISP_LOGO_SIZES = ("257x257", "129x129", "101x101", "51x51", "25x25")
+
 # Preference order. `topology` is what the UniFi topology view uses; the others
 # are fallbacks for hardware that lacks it.
 VARIANTS = ("topology", "nopadding", "default")
@@ -274,6 +282,70 @@ class AssetStore:
         except ValueError:
             return {}
         return {str(k): int(v) for k, v in raw.items() if isinstance(v, int | str)}
+
+    def isp_logo(self, asn: int | None) -> IconAsset | None:
+        """The upstream provider's brand mark, keyed on its ASN.
+
+        The console shows one beside each WAN, and derives it from the ASN alone:
+        its speed-test daemon logs the URL it builds, `ispImg`, verbatim. So a
+        single number from `stat/health` is the whole lookup, with no table to
+        maintain and nothing provider-specific in this code.
+
+        Unlike the fingerprint paths on the same host, a missing ASN really does
+        404 here, so absence is distinguishable from a wrong guess.
+        """
+        if asn is None:
+            return None
+
+        cached = self.icon_dir / f"isp-{asn}-{ICON_PX}.png"
+        if cached.is_file():
+            return _measure(cached)
+        if self.offline:
+            return None
+
+        for size in ISP_LOGO_SIZES:
+            url = ISP_LOGO_URL.format(asn=asn, size=size)
+            try:
+                response = requests.get(url, timeout=self.timeout, allow_redirects=False)
+            except requests.RequestException as exc:
+                log.debug("ISP logo %s failed (%s).", url, exc)
+                continue
+            if response.status_code != 200 or not response.content:
+                continue
+            self.icon_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                return _downscale(response.content, cached, ICON_PX)
+            except AssetError as exc:
+                log.warning("%s", exc)
+                return None
+
+        # Plenty of providers will simply not have one.
+        log.debug("No brand mark for ASN %s.", asn)
+        return None
+
+    def internet_icon(self, color: str) -> IconAsset | None:
+        """A generic cloud for the Internet node, drawn locally.
+
+        Used when there is no provider brand mark to draw: an ASN Ubiquiti have
+        no logo for, or a map that has been obfuscated on purpose. Needs no
+        network, because nothing is fetched.
+
+        *color* should be the theme's muted text colour, so the cloud tracks the
+        theme rather than being pinned to one background. Measured at 5.8:1 on
+        light and 8.4:1 on dark, both past WCAG AA for graphics, and it is a
+        luminance difference rather than a hue one so it survives greyscale and
+        colour blindness. Each colour caches to its own file; sharing one would
+        leave a dark cloud on a dark canvas.
+        """
+        cached = self.icon_dir / f"internet-{color.lstrip('#')}-{ICON_PX}.png"
+        if cached.is_file():
+            return _measure(cached)
+        try:
+            return _render_cloud(color, cached, ICON_PX)
+        except (AssetError, OSError, ValueError):
+            # No Pillow, or a bad colour: fall back to the shape renderer.
+            log.debug("Could not draw the Internet icon.", exc_info=True)
+            return None
 
     def client_icon(self, dev_id: int | None) -> IconAsset | None:
         """Real product artwork for a fingerprinted client.
@@ -495,6 +567,62 @@ def _measure(path: Path) -> IconAsset | None:
     except (AssetError, OSError, ValueError):
         log.debug("Could not measure %s", path, exc_info=True)
         return None
+
+
+def _render_cloud(color: str, dest: Path, box: int) -> IconAsset:
+    """Draw a plain cloud silhouette.
+
+    Ours, not Ubiquiti's: it is four overlapping ellipses and a bar, drawn here
+    rather than fetched, so it works offline and raises no licensing question.
+    It stands in for the Internet node whenever no provider brand mark applies,
+    which is either an ASN with no logo or a deliberately obfuscated map.
+
+    Drawn oversized and downscaled, the same trick the glyph renderer uses to
+    keep curved edges smooth.
+    """
+    Image = _pillow_image()
+    try:
+        from PIL import ImageDraw
+    except ImportError as exc:  # pragma: no cover - depends on environment
+        raise AssetError("Pillow is not installed; cannot draw the Internet icon.") from exc
+
+    scale = 4
+    width = box * scale
+    height = int(width * 0.62)
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+
+    def blob(cx: float, cy: float, r: float) -> None:
+        draw.ellipse(
+            [
+                (cx - r) * width,
+                (cy - r) * width,
+                (cx + r) * width,
+                (cy + r) * width,
+            ],
+            fill=color,
+        )
+
+    # Five puffs of differing size on a rounded bar. The asymmetry is the point:
+    # evenly spaced equal circles read as a flower, not a cloud.
+    #
+    # Every circle's lowest point is exactly the baseline. A puff reaching even
+    # slightly past it leaves a visible lump hanging off the flat bottom edge,
+    # which is the one way this goes obviously wrong.
+    base = 0.53
+    draw.rounded_rectangle(
+        [0.07 * width, 0.38 * width, 0.93 * width, base * width],
+        radius=0.075 * width,
+        fill=color,
+    )
+    for cx, radius in ((0.22, 0.165), (0.38, 0.185), (0.56, 0.225), (0.75, 0.195), (0.87, 0.135)):
+        blob(cx, base - radius, radius)
+
+    cropped = canvas.crop(canvas.getbbox() or (0, 0, width, height))
+    cropped.thumbnail((box, box), Image.LANCZOS)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cropped.save(dest, "PNG")
+    return IconAsset(path=dest, width=cropped.width, height=cropped.height)
 
 
 def _render_glyph(font_path: Path, codepoint: int, color: str, dest: Path, box: int) -> IconAsset:

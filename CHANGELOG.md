@@ -29,6 +29,21 @@ a major one later.
 
 Refactors, docs and tests alone do not need a release at all.
 
+## Unreleased
+
+### Added
+
+- The Internet node now shows the upstream provider's brand mark, matched on the
+  ASN the controller already reports beside the ISP name. Providers Ubiquiti have
+  no mark for, and any map rendered with `--obfuscate`, get a plain cloud
+  instead of a bare polygon.
+
+### Changed
+
+- `--obfuscate` also drops the ASN. It identifies the provider as squarely as
+  the name does, and would otherwise redraw their logo on a map whose purpose is
+  being safe to publish.
+
 ## 0.2.0 - 2026-07-30
 
 ### Added

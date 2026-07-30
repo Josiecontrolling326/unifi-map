@@ -362,6 +362,30 @@ class TestWanInfo:
         assert node.label == "Example ISP"
         assert node.ip == "203.0.113.10"
 
+    def test_the_asn_reaches_the_internet_node(self, devices: dict, networkconf: dict):
+        # It is the whole of the ISP brand-mark lookup, so losing it here would
+        # silently disable provider logos with nothing to show why.
+        health = {"data": [{"subsystem": "wan", "isp_name": "Example ISP", "asn": 64500}]}
+        topo = build_topology(
+            Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+        )
+        assert topo.nodes["internet"].asn == 64500
+
+    def test_a_missing_asn_is_none_not_zero(self, devices: dict, networkconf: dict):
+        # 0 looks like a valid ASN and would send us fetching something absent.
+        health = {"data": [{"subsystem": "wan", "isp_name": "Example ISP"}]}
+        topo = build_topology(
+            Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+        )
+        assert topo.nodes["internet"].asn is None
+
+    def test_a_non_numeric_asn_is_ignored(self, devices: dict, networkconf: dict):
+        health = {"data": [{"subsystem": "wan", "isp_name": "X", "asn": "not-a-number"}]}
+        topo = build_topology(
+            Snapshot(payloads={"device": devices, "networkconf": networkconf, "health": health})
+        )
+        assert topo.nodes["internet"].asn is None
+
     def test_falls_back_to_isp_organization(self, devices: dict, networkconf: dict):
         health = {"data": [{"subsystem": "wan", "isp_organization": "Example ISP, Inc."}]}
         topo = build_topology(

@@ -398,3 +398,61 @@ class TestIconFontFromDisk:
         loose.write_bytes(b"x")
         with pytest.raises(AssetError, match="not a directory"):
             read_icon_font_dir(loose)
+
+
+class TestIspBrandMark:
+    """Provider logos, keyed on ASN.
+
+    Ubiquiti derive these from the autonomous system number alone, so there is
+    no provider table here to go stale.
+    """
+
+    def test_no_asn_means_no_request(self, tmp_path, monkeypatch):
+        store = AssetStore(cache_dir=tmp_path / "cache")
+
+        def explode(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("isp_logo() made a network request for a null ASN")
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", explode)
+        assert store.isp_logo(None) is None
+
+    def test_offline_yields_nothing_rather_than_failing(self, tmp_path):
+        assert AssetStore(cache_dir=tmp_path / "cache", offline=True).isp_logo(7018) is None
+
+
+class TestInternetCloud:
+    """The generic Internet icon, drawn locally rather than fetched.
+
+    It stands in wherever there is no brand mark: an ASN Ubiquiti have no logo
+    for, and every obfuscated map.
+    """
+
+    def test_it_is_drawn_without_any_network(self, tmp_path, monkeypatch):
+        store = AssetStore(cache_dir=tmp_path / "cache", offline=True)
+
+        def explode(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("internet_icon() made a network request")
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", explode)
+        asset = store.internet_icon("#5A626E")
+        assert asset is not None
+        assert asset.path.is_file()
+
+    def test_it_is_wider_than_it_is_tall(self, tmp_path):
+        # A cloud in a square cell would letterbox, the same reason rack
+        # switches carry their real aspect ratio.
+        asset = AssetStore(cache_dir=tmp_path / "cache").internet_icon("#5A626E")
+        assert asset.width > asset.height
+
+    def test_the_second_call_reuses_the_cached_file(self, tmp_path):
+        store = AssetStore(cache_dir=tmp_path / "cache")
+        first = store.internet_icon("#5A626E")
+        stamp = first.path.stat().st_mtime_ns
+        second = store.internet_icon("#5A626E")
+        assert second.path == first.path
+        assert second.path.stat().st_mtime_ns == stamp
+
+    def test_each_colour_gets_its_own_file(self, tmp_path):
+        # Light and dark themes must not share one cached image.
+        store = AssetStore(cache_dir=tmp_path / "cache")
+        assert store.internet_icon("#5A626E").path != store.internet_icon("#AAB2BF").path
