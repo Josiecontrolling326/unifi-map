@@ -417,7 +417,15 @@ Only leaf nodes can be hidden. Hiding a switch would orphan everything behind it
 and there is no honest answer to what should happen to the children, so it is
 refused with an error naming them.
 
-See [`docs/overrides.md`](docs/overrides.md) for the full format.
+Artwork you supply is fitted into the same box as everything else, so it cannot
+come out oversized, but **trim the empty margins yourself**: fetched artwork is
+cropped to its visible content automatically and yours is not, so a subject
+floating in a large canvas renders noticeably smaller than its neighbours. A
+roughly square, tightly cropped, transparent PNG around 256 pixels on the long
+edge matches Ubiquiti's own artwork best.
+
+See [`docs/overrides.md`](docs/overrides.md) for the full format and more
+guidance on choosing images.
 
 ## Also planned
 

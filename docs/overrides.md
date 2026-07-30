@@ -101,13 +101,49 @@ hidden node's parent invents a link that does not exist). So hiding a node that
 has children is refused with an error naming the node and its children, rather
 than guessed at.
 
+#### Choosing artwork that looks right
+
+Your image is fitted into the same box as every other icon, about 168 by 90
+points, keeping its aspect ratio. It is never cropped or scaled up beyond that
+box, so it cannot come out oversized. What varies is how much of the box it
+fills, and that is what makes an image look wrong next to its neighbours.
+
+For reference, Ubiquiti's own artwork ranges from 87 to 256 pixels on a side,
+with aspect ratios from about 1:3 for a tall access point to 7:1 for a
+rack-mount switch. Most devices are close to square.
+
+Practical guidance:
+
+- **Match the proportions of the thing you are replacing.** A roughly square
+  image is the safest default. A very wide image fits the box on its width and
+  ends up short; a very tall one fits on its height and ends up narrow. Either
+  can look small beside a square neighbour even though the box is identical.
+- **Trim empty margins yourself.** Fetched artwork is cropped to its visible
+  content automatically; artwork you supply is used exactly as given. Padding is
+  counted as part of the image, so a subject floating in a large transparent
+  canvas renders noticeably smaller than everything around it. This is the most
+  common reason a custom icon looks wrong.
+- **Use PNG with transparency.** A white or opaque background becomes a bright
+  slab on the dark theme. Transparent PNG is what the fetched artwork uses.
+- **Around 256 pixels on the long edge is plenty.** Everything is scaled down to
+  the box anyway, and the file is base64 embedded into every SVG you produce, so
+  a large photograph inflates the output for no visible gain.
+- **SVG works, with a caveat.** Graphviz will load one only if it declares
+  explicit `width` and `height` in pixels; an SVG with just a `viewBox` is
+  silently rejected. PNG avoids the question.
+- **Other formats** Graphviz accepts include JPEG, GIF and WebP, but none of
+  them handle transparency as reliably as PNG.
+
+A photograph of the actual device, background removed and cropped tight, sits
+alongside Ubiquiti's renders better than an icon or a logo does.
+
 Relative `icon` paths resolve against **the overrides file's directory**, not the
 working directory, so a config and its assets folder can be moved together and
 still work regardless of where you run the tool from.
 
-Artwork you supply is never fetched or cached; it is read from where you put it.
-Any image format Graphviz can load works; it is fitted to the same box and
-aspect-ratio rules as fetched artwork.
+Artwork you supply is never fetched or cached; it is read from where you put it,
+every time you render. It is embedded into the SVG the same way fetched artwork
+is, so the output stays a single portable file and no local path appears in it.
 
 ### Selectors
 

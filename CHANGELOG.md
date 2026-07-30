@@ -24,6 +24,10 @@ from there, so there is only ever one number to change.
 
 ### Fixed
 
+- Artwork supplied through an override is now embedded in the SVG. It was being
+  left as a filesystem path, which both broke portability and disclosed a local
+  path, usually containing a username, even under `--obfuscate`.
+
 - Clients behind a non-UniFi device are now placed correctly instead of being
   collected under "Uplink not reported by controller". `stat/sta` only reports an
   uplink when it is a UniFi device, so VMs and containers behind a NAS, or

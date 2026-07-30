@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -19,14 +20,19 @@ log = logging.getLogger(__name__)
 _HREF = re.compile(rb'(?P<attr>(?:xlink:)?href=")(?P<path>[^"]+\.png)(?P<tail>")')
 
 
-def inline_svg_images(svg: bytes, allowed_root: Path | None = None) -> bytes:
+def inline_svg_images(svg: bytes, allowed: Iterable[Path] = ()) -> bytes:
     """Replace on-disk PNG references in *svg* with base64 data URIs.
 
-    *allowed_root* restricts which files may be embedded, so a crafted device
-    name cannot cause arbitrary files to be read into the output.
+    *allowed* is the exact set of files that may be embedded, which is every
+    icon this render actually used. Naming files rather than a directory keeps
+    a crafted device name from pulling in anything else, and lets artwork the
+    user supplied from their own folder be embedded alongside cached artwork.
+
+    A reference left as a filesystem path is not merely unportable: it discloses
+    a local path, which usually contains a username.
     """
     cache: dict[bytes, bytes] = {}
-    root = allowed_root.resolve() if allowed_root else None
+    permitted = {p.resolve() for p in allowed}
 
     def replace(match: re.Match[bytes]) -> bytes:
         raw = match.group("path")
@@ -40,8 +46,12 @@ def inline_svg_images(svg: bytes, allowed_root: Path | None = None) -> bytes:
         except (UnicodeDecodeError, OSError):
             return match.group(0)
 
-        if root is not None and not path.is_relative_to(root):
-            log.debug("Refusing to inline %s: outside %s", path, root)
+        if path not in permitted:
+            log.warning(
+                "Not embedding %s: it is not one of this render's icons. The SVG "
+                "will reference it by path rather than carrying it.",
+                path,
+            )
             return match.group(0)
         if not path.is_file():
             return match.group(0)

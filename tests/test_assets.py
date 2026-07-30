@@ -108,7 +108,7 @@ class TestSvgInlining:
         icon.write_bytes(png_bytes(4, 4))
         svg = f'<svg><image xlink:href="{icon}" /></svg>'.encode()
 
-        out = inline_svg_images(svg, allowed_root=tmp_path)
+        out = inline_svg_images(svg, allowed=[icon])
         assert b"data:image/png;base64," in out
         assert str(icon).encode() not in out
 
@@ -116,32 +116,56 @@ class TestSvgInlining:
         icon = tmp_path / "icon.png"
         icon.write_bytes(png_bytes(4, 4))
         svg = f'<svg><image href="{icon}"/><image href="{icon}"/></svg>'.encode()
-        out = inline_svg_images(svg, allowed_root=tmp_path)
+        out = inline_svg_images(svg, allowed=[icon])
         assert out.count(b"data:image/png;base64,") == 2
 
-    def test_files_outside_the_allowed_root_are_refused(self, tmp_path, png_bytes):
-        outside = tmp_path / "secret.png"
-        outside.write_bytes(png_bytes(4, 4))
-        allowed = tmp_path / "icons"
-        allowed.mkdir()
-        svg = f'<svg><image href="{outside}"/></svg>'.encode()
+    def test_artwork_the_user_supplied_is_embedded_too(self, tmp_path, png_bytes):
+        # Override artwork lives wherever the user keeps it, not in the cache.
+        # Leaving it as a path both breaks portability and discloses a local
+        # path, which usually contains a username.
+        cached = tmp_path / "cache" / "a.png"
+        cached.parent.mkdir()
+        cached.write_bytes(png_bytes(4, 4))
+        supplied = tmp_path / "mine" / "bidet.png"
+        supplied.parent.mkdir()
+        supplied.write_bytes(png_bytes(8, 6))
 
-        out = inline_svg_images(svg, allowed_root=allowed)
+        svg = f'<svg><image href="{cached}"/><image href="{supplied}"/></svg>'.encode()
+        out = inline_svg_images(svg, allowed=[cached, supplied])
+        assert out.count(b"data:image/png;base64,") == 2
+        assert b"/mine/bidet.png" not in out
+        assert b"/cache/a.png" not in out
+
+    def test_a_file_that_was_not_used_is_refused(self, tmp_path, png_bytes):
+        used = tmp_path / "used.png"
+        used.write_bytes(png_bytes(4, 4))
+        other = tmp_path / "secret.png"
+        other.write_bytes(png_bytes(4, 4))
+        svg = f'<svg><image href="{other}"/></svg>'.encode()
+
+        out = inline_svg_images(svg, allowed=[used])
         # Left untouched rather than embedded.
         assert b"data:image/png" not in out
-        assert str(outside).encode() in out
+        assert str(other).encode() in out
 
     def test_missing_file_is_left_alone(self, tmp_path):
-        svg = f'<svg><image href="{tmp_path / "nope.png"}"/></svg>'.encode()
-        assert inline_svg_images(svg, allowed_root=tmp_path).count(b"data:") == 0
+        absent = tmp_path / "nope.png"
+        svg = f'<svg><image href="{absent}"/></svg>'.encode()
+        assert inline_svg_images(svg, allowed=[absent]).count(b"data:") == 0
 
     def test_existing_data_uri_is_not_double_encoded(self, tmp_path):
         svg = b'<svg><image href="data:image/png;base64,QQ==.png"/></svg>'
-        assert inline_svg_images(svg, allowed_root=tmp_path) == svg
+        assert inline_svg_images(svg, allowed=[]) == svg
 
     def test_non_png_references_are_ignored(self, tmp_path):
         svg = b'<svg><image href="/etc/passwd"/></svg>'
-        assert inline_svg_images(svg, allowed_root=tmp_path) == svg
+        assert inline_svg_images(svg, allowed=[]) == svg
+
+    def test_nothing_allowed_means_nothing_embedded(self, tmp_path, png_bytes):
+        icon = tmp_path / "icon.png"
+        icon.write_bytes(png_bytes(4, 4))
+        svg = f'<svg><image href="{icon}"/></svg>'.encode()
+        assert b"data:" not in inline_svg_images(svg)
 
 
 def test_icon_asset_display_size_never_returns_zero():

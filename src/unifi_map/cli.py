@@ -216,10 +216,12 @@ def _write_outputs(
     formats: list[str],
     style: Style,
     icons: dict[str, IconAsset],
-    icon_root: Path,
     stagger_depth: int = 0,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Every icon this render used, and nothing else, may be embedded.
+    icon_paths = {asset.path for asset in icons.values() if asset.path is not None}
 
     # Stagger once, up front, so the SVG/PDF and the draw.io coordinates are
     # computed from byte-identical DOT and therefore agree exactly.
@@ -237,7 +239,7 @@ def _write_outputs(
         if fmt == "svg":
             # Graphviz references artwork by filesystem path; inline it so the
             # SVG is a single portable file.
-            data = inline_svg_images(data, allowed_root=icon_root)
+            data = inline_svg_images(data, allowed=icon_paths)
         path = out_dir / f"{stem}.{fmt}"
         path.write_bytes(data)
         log.info("  %s (%.1f KiB)", path, len(data) / 1024)
@@ -324,7 +326,6 @@ def cmd_render(args: argparse.Namespace) -> int:
         formats,
         style,
         icons,
-        store.icon_dir,
         _stagger_for(topo, args.stagger, style),
     )
 
@@ -343,7 +344,6 @@ def cmd_render(args: argparse.Namespace) -> int:
                 formats,
                 style,
                 icons,
-                store.icon_dir,
                 _stagger_for(view, args.stagger, style),
             )
 
