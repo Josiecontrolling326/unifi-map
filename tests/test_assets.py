@@ -305,3 +305,34 @@ class TestClientFingerprintDatabase:
         store = self._store(tmp_path, offline=True)
         store.fingerprint_db_path.write_text("{not json", encoding="utf-8")
         assert store.fingerprint_db() is None
+
+    def test_downloading_is_off_by_default(self, tmp_path, monkeypatch):
+        # Reading a support file should contact nothing unless asked, so a bare
+        # call must not reach the network even when not marked offline.
+        store = AssetStore(cache_dir=tmp_path / "cache")
+
+        def explode(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("fingerprint_db() made a network request")
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", explode)
+        assert store.fingerprint_db() is None
+
+    def test_a_cache_is_used_without_asking_to_download(self, tmp_path, monkeypatch):
+        # Reading a local file is not network access, so it needs no opt-in.
+        store = AssetStore(cache_dir=tmp_path / "cache")
+        store.save_fingerprint_db({"dev_ids": {"1": {"name": "Thing"}}})
+
+        def explode(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("fingerprint_db() made a network request")
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", explode)
+        assert store.fingerprint_db()["dev_ids"]["1"]["name"] == "Thing"
+
+    def test_offline_beats_an_explicit_download_request(self, tmp_path, monkeypatch):
+        store = AssetStore(cache_dir=tmp_path / "cache", offline=True)
+
+        def explode(*args, **kwargs):  # pragma: no cover - must never run
+            raise AssertionError("fingerprint_db() made a network request")
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", explode)
+        assert store.fingerprint_db(download=True) is None

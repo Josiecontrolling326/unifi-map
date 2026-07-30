@@ -108,15 +108,20 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
     without knowing the difference. No credentials are read and no request is
     made, which is what makes a support file a safe thing to be sent.
     """
-    snapshot = load_support_file(
-        args.support_file,
-        args.support_site,
-        # Not in the archive, but published by Ubiquiti, so this is fetched or
-        # read from cache without going near anyone's controller.
-        fingerprint_db=AssetStore(
-            cache_dir=args.asset_cache, offline=getattr(args, "offline", False)
-        ).fingerprint_db(),
-    )
+    store = AssetStore(cache_dir=args.asset_cache, offline=getattr(args, "offline", False))
+    # Not in the archive. Downloading it is opt-in, because someone reading a
+    # support file has often chosen this path precisely to avoid outbound
+    # traffic; an already-cached copy is used either way, being purely local.
+    fingerprint_db = store.fingerprint_db(download=args.fetch_fingerprints)
+    if fingerprint_db is None and not args.fetch_fingerprints:
+        log.info(
+            "Client product artwork is off: it needs Ubiquiti's fingerprint "
+            "database, which a support file does not contain. Pass "
+            "--fetch-fingerprints to download it (about 1 MB, cached "
+            "afterwards). Nothing else here touches the network."
+        )
+
+    snapshot = load_support_file(args.support_file, args.support_site, fingerprint_db)
     snapshot.write(args.cache_dir)
     log.info("Wrote snapshot to %s/", args.cache_dir)
     for name, payload in sorted(snapshot.payloads.items()):
@@ -438,6 +443,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="Which site to map from a multi-site support file "
         "(default: the one with the most devices)",
+    )
+    parser.add_argument(
+        "--fetch-fingerprints",
+        action="store_true",
+        help="Allow downloading Ubiquiti's client fingerprint database, which is "
+        "what gives clients real product artwork when reading a support file. "
+        "Off by default: reading a support file otherwise contacts nothing.",
     )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("-v", "--verbose", action="store_true")

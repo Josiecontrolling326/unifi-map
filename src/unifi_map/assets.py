@@ -160,29 +160,32 @@ class AssetStore:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.fingerprint_db_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    def fingerprint_db(self) -> dict[str, Any] | None:
-        """The client fingerprint database, cached or freshly downloaded.
-
-        Ubiquiti publish this at `CLIENT_CATALOG_URL`, so it needs no
-        controller and no credentials. That matters: it is what lets
-        `--support-file` resolve client artwork without connecting to anyone's
-        console, which is the entire point of reading a support file.
-
-        The published copy is a superset of what a controller serves (5809
-        entries against 5789 when compared, containing every id the controller
-        had), so a live fetch is a convenience rather than a requirement.
-        """
-        if self.fingerprint_db_path.is_file():
-            try:
-                payload = json.loads(self.fingerprint_db_path.read_text(encoding="utf-8"))
-            except ValueError:
-                payload = None
-            if isinstance(payload, dict) and payload.get("dev_ids"):
-                return payload
-
-        if self.offline:
-            log.warning("Offline and no cached client fingerprints; client artwork disabled.")
+    def _cached_fingerprint_db(self) -> dict[str, Any] | None:
+        if not self.fingerprint_db_path.is_file():
             return None
+        try:
+            payload = json.loads(self.fingerprint_db_path.read_text(encoding="utf-8"))
+        except ValueError:
+            return None
+        return payload if isinstance(payload, dict) and payload.get("dev_ids") else None
+
+    def fingerprint_db(self, download: bool = False) -> dict[str, Any] | None:
+        """The client fingerprint database, from cache or Ubiquiti's CDN.
+
+        Ubiquiti publish this at `CLIENT_CATALOG_URL`, so it needs no controller
+        and no credentials. The published copy is a superset of what a
+        controller serves: 5809 entries against 5789 when compared, containing
+        every id the controller had.
+
+        **`download` defaults to False deliberately.** The reason to read a
+        support file is often that you do not want this tool talking to
+        anything, and reaching out to a CDN unasked would quietly break that.
+        Reading an existing cache is always permitted, because it touches no
+        network.
+        """
+        cached = self._cached_fingerprint_db()
+        if cached is not None or not download or self.offline:
+            return cached
 
         try:
             response = requests.get(CLIENT_CATALOG_URL, timeout=self.timeout)

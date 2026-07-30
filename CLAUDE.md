@@ -323,10 +323,25 @@ it**, at `static.ui.com/fingerprint/0/devicelist.json`
 product artwork on a completely cold cache with no console contact, and all 13
 matched what the controller reports.
 
-That URL must stay controller-free. Support-file mode exists precisely so people
-who will not point this tool at their console can still use it, so anything that
-reintroduces an API dependency defeats it. `AssetStore` still caches the database
-during a live fetch, but only as a saved download.
+Two rules follow, and they pull in different directions:
+
+- **It must stay controller-free.** Support-file mode exists precisely so people
+  who will not point this tool at their console can still use it, so anything
+  reintroducing an API dependency defeats it.
+- **It must stay opt-in.** `AssetStore.fingerprint_db()` takes `download=False`
+  by default and the CLI gates it behind `--fetch-fingerprints`, because the
+  same person who declines to touch their console will not expect an unasked
+  request to a CDN either. A cache that already exists is read regardless, since
+  that is not network access. Never vendor the database; it is Ubiquiti's, like
+  the artwork.
+
+**The icon font is a genuine dead end.** The four generic client glyphs come
+from `manage/angular/<build>/fonts/ubnt.ttf`, a custom Ubiquiti IcoMoon build
+(note the `?6vxos8` cache-buster) served only by a controller. It is nowhere in
+a support file, and `cdn.pkg{,.dev}.svc.ui.com/unifi-network-ui/<version>/...`
+returns 403 for every path including a deliberately bogus control. So a
+support-file map without a controller draws unfingerprinted clients as shapes,
+which is the documented degradation and is fine. Do not vendor the font either.
 
 Dead ends already checked, do not repeat: `mca-dump.fingerprints.hosts` carries
 `custom`, `ml` and `tdts` per host, but only `ml` shares the controller's id

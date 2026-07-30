@@ -202,6 +202,24 @@ large archive, typically around 150 MiB.
 This is also the practical way to send someone else a topology for a bug report,
 since a support file needs no account and no access to your console.
 
+**Reading a support file contacts nothing.** No controller, no credentials, and
+no outbound requests of any kind. If you want client product artwork, that needs
+Ubiquiti's fingerprint database, which the archive does not contain, so it is a
+separate opt-in:
+
+```bash
+unifi-map fetch --support-file support-XXXX.tgz --fetch-fingerprints
+```
+
+That downloads about 1 MB from Ubiquiti's CDN and caches it, still without
+touching any controller. Leave the flag off and clients simply draw without
+product artwork. Note that `render` does reach the CDN for device artwork unless
+you pass `--offline`, so for a completely network-free run use both:
+
+```bash
+unifi-map all --support-file support-XXXX.tgz --offline --icons builtin
+```
+
 What you get is very close to a live fetch. Verified against the same network
 read both ways, the infrastructure and the wireless client list came out
 identical, and VLAN names, subnets, switch port numbers, SSIDs, client addresses,
@@ -215,9 +233,10 @@ have named, and clients the console never identified, draw without product
 artwork. UniFi hardware appearing as a client is unaffected and still draws
 properly.
 
-The product lookup uses Ubiquiti's published fingerprint database, downloaded
-from their CDN and cached. Like all the artwork, it involves no controller and
-no credentials, and `--offline` skips it.
+The product lookup needs Ubiquiti's published fingerprint database, which is why
+it is behind `--fetch-fingerprints` as described above. Clients with no
+fingerprint draw as plain shapes rather than the console's generic glyph,
+because that glyph comes from an icon font only a controller serves.
 
 Two smaller caveats:
 

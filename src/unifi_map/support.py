@@ -570,11 +570,7 @@ def load_support_file(path: Path, site: str | None = None, fingerprint_db: Any =
             len(clients),
         )
     else:
-        log.info(
-            "  No client fingerprint database available, so clients draw "
-            "without product artwork. It is downloaded automatically unless "
-            "--offline is set."
-        )
+        log.info("  Clients will draw without product artwork.")
 
     payloads: dict[str, Any] = {
         "device": devices,
