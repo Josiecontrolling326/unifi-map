@@ -40,6 +40,9 @@ controller JSON.
    CSRF token. Network application paths are prefixed `/proxy/network`. `unwrap()` absorbs both the v1 `{"data": [...]}`
    envelope and bare v2 lists, returning `[]` on anything unexpected so a
    controller upgrade thins the diagram instead of raising.
+   **`support.py`** is the alternative source: it reads the same `Snapshot` out
+   of a support file archive, with no credentials and no network. Keep the two
+   interchangeable, so anything added to one is considered for the other.
 3. **`model.py`** normalizes into `Topology`. All schema quirks land here.
 4. **`assets.py`** is the only module that fetches artwork. Cached under
    `--asset-cache` (default `cache/assets`), deliberately separate from the
@@ -229,6 +232,10 @@ headings, check what was in between.
   yields through the `images.svc.ui.com/?u=...` proxy. If nothing local resolves
   it, only then treat cloud as the answer.
 
+  A support file carries the same ASN in `ispData`, and `support.py` passes it
+  through into the `health` payload for this reason, so the experiment can be
+  run against an archive without touching a controller.
+
   Do not repeat: greps for `isp*Logo|Icon|Image|Brand`, `/isp` templates or
   carrier/provider identifiers across `/275`, `/905`, `/989`, `/main~0`,
   `/main~2` and the legacy `/manage/` bundles. Also do not look for a webpack
@@ -236,9 +243,6 @@ headings, check what was in between.
 
 - **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
   and uplinks, separate from the client topology. `--no-clients` approximates it.
-
-- **A `--support-file` mode.** Evaluated and viable; see the support file section
-  below for exactly which three files to read and what it would cost.
 
 - **Repository description on GitHub.** Not a file, it is a setting, which is why
   it keeps getting forgotten. Keep it consistent with `pyproject.toml`:
@@ -250,38 +254,76 @@ parsed, CI exists, obfuscation exists, versioning started at 0.1.0, `SECURITY.md
 and `CONTRIBUTING.md` and the issue and PR templates were written, and clients
 behind non-UniFi devices are placed from the controller's own graph.
 
-## Support files could be a second input, and nearly work already
+## `--support-file` is a second input, and loses almost nothing
 
-Someone suggested a UniFi support file carries what this tool needs. Inspected
-one on 2026-07-30 (154 MiB, 2451 entries) and it very nearly does. Under
-`unifi/`:
+`support.py` reads a console support file into the same `Snapshot` the API
+produces, so nothing downstream knows the difference. Verified against a live
+fetch of the same network: identical infrastructure (7 AP, 1 gateway, 3 switch),
+identical wireless client count, one extra wired client live because the archive
+was an hour older. Only client *product* artwork is lost.
 
-- `devices.json` holds the full device records for each site, 67 fields
-  including `mac`, `model`, `sysid`, `type`, `uplink`, `port_table`, `ip` and
-  `state`. That is `stat/device` in all but name, so device artwork would work.
-- `topology.json` is the same graph as the v2 endpoint: vertices typed DEVICE or
-  CLIENT, and edges carrying `downlinkMac`, `uplinkMac`, `type`, `essid`,
-  `protocol` and `networkId`. Every connection, including client behind client.
-- `infrastructure.json` carries `ispData` with the provider name, **asn** and
-  WAN address, plus `gatewayMac` and `wanMode`.
+The seven members read, and nothing else:
 
-What is absent, and what it costs:
+| Member | Stands in for |
+| --- | --- |
+| `unifi/devices.json` | `stat/device`, including `sysid` |
+| `unifi/topology.json` | the v2 topology graph |
+| `unifi/infrastructure.json` | `stat/health` WAN, via `ispData` |
+| `system/run/dnsmasq.lease` | client addresses |
+| `system/network/ip-neigh` | client addresses, statically assigned |
+| `system/network/dpi-util-fprint-stats` | addresses of last resort, and fingerprints |
+| `unifi-protect/cameras/cameras.json` | Protect's camera list |
 
-- **Client records.** CLIENT vertices carry only `mac`, `name` and `type`. No IP
-  address, no `dev_id`, no `network_id`, no `is_guest`. So clients would render
-  with names and correct connections but no addresses and no client artwork.
-- **Network names.** Edges carry `networkId`, so VLAN grouping still works, but
-  the names would be opaque ids unless `setting.json` turns out to hold
-  `networkconf` (its `site_settings` key was not inspected).
+Three earlier conclusions here were wrong, all from not looking hard enough:
 
-So a `--support-file` mode is worth building and would produce a genuinely
-useful map, mostly losing client artwork and addresses. It also needs no
-credentials, which makes it the obvious way for someone to share a real
-topology for a bug report. Note the file is enormous and full of logs; read only
-the three JSON files above and never extract the whole archive.
+- **Network names are recoverable**, from the *gateway's* `network_table` in
+  `devices.json`, which carries the same `_id`/`name`/`vlan`/`ip_subnet` as
+  `rest/networkconf`. All five LANs matched the live endpoint exactly. It is
+  `setting.json` that is useless: its contents are `**dynamic-hidden**`. Live
+  `networkconf` additionally returns the WAN and VPN networks, which
+  `network_table` omits and no client belongs to.
+- **Client addresses are recoverable**, from the DHCP lease file plus the
+  neighbour table, which between them covered 43 of 47 clients. Neither is under
+  `unifi/`, which is why the first pass declared them absent.
+- **Client fingerprints partly exist**, in
+  `system/network/dpi-util-fprint-stats`. This was found by grepping the
+  extracted tree for known addresses, after two passes of mine had concluded no
+  fingerprint data was present. It was in the manifest I already had; my greps
+  covered `lease|dhcp|client|arp` and never `dpi` or `fprint`.
 
-Incidentally `ispData.asn` is in there too, which is another route to the ISP
-logo question.
+That last file needs care rather than enthusiasm. It is the gateway's live DPI
+engine, and `ml.deviceNameID` is genuinely the same id space as `dev_id`, but it
+is an inference with its own `confidence`, not the controller's settled answer.
+Checked against a live fetch of the same network: 38 hosts listed, 7 carrying a
+guess, of which **4 matched the controller and 3 did not**, at confidences 25, 3
+and 6. The single high-confidence guess (94) was correct, and there is no clean
+separation lower down: a 5 agreed while a 6 disagreed. Hence
+`MIN_FINGERPRINT_CONFIDENCE = 80`, and hence the address from this file is
+trusted freely while the fingerprint is not. Drawing a printer as the wrong
+product on a 3% hunch breaks "never invent a product match" for no real gain.
+
+Note also what it did *not* add: all 38 of its hosts already had an address from
+the lease or neighbour table, so it closed none of the four gaps, and every
+client already had a name, so its hostnames were redundant. It is kept as a
+fallback because a network with a thin lease file may differ.
+
+Reading Protect's camera list keeps the other case that matters: UniFi hardware
+sitting on a switch port as a client still resolves its artwork, because the
+camera/Access-reader ambiguity can still be broken.
+
+Constraints worth keeping:
+
+- **Never extract the archive.** It is ~150 MiB over ~2500 entries and mostly
+  logs, including per-client remote logs. It is read as a `r|gz` stream, decoded
+  into memory, and the wanted members are picked off as they go past.
+- **It is attacker-supplied.** The whole point is that a stranger can send you
+  one to reproduce a bug, so members are size-capped and anything that is not a
+  regular file is skipped.
+- Port numbers come from `uplinkPortNumber`, the port on the uplink device.
+  `downlinkPortNumber` is the client's own interface and is absent on client
+  edges; taking it would silently drop every port label.
+- `devices.json` is a list of one object per site, plus a `super` pseudo-site
+  that is always empty. Multi-site archives pick the largest and say so.
 
 ## Data hygiene
 

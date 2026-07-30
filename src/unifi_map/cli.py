@@ -8,6 +8,9 @@ Two stages, deliberately separable:
 Keeping them apart means you can re-render endlessly while iterating on style
 without hammering the controller, and each cached snapshot is a record of what
 the network looked like at that moment.
+
+`fetch --support-file` fills the same cache from a support file archive rather
+than a controller, so everything downstream behaves identically.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from .overrides import apply as apply_overrides
 from .overrides import load as load_overrides
 from .render_dot import ICON_SETS, LAYOUTS, Style, render_dot
 from .render_drawio import render_drawio
+from .support import SupportFileError, load_support_file
 from .svg_post import inline_svg_images
 from .theme import THEMES, get_theme
 
@@ -67,6 +71,9 @@ def _stagger_for(topo: Topology, requested: int, style: Style) -> int:
 
 
 def cmd_fetch(args: argparse.Namespace) -> int:
+    if args.support_file:
+        return _fetch_from_support_file(args)
+
     config = load_config(args.env_file)
     client = UniFiClient(config)
     log.info("Reading %s (site %s)", config.host, config.site)
@@ -80,6 +87,22 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         # Only needed for clients with no usable fingerprint; not fatal.
         log.warning("Could not cache the icon font (%s); generic client glyphs disabled.", exc)
 
+    snapshot.write(args.cache_dir)
+    log.info("Wrote snapshot to %s/", args.cache_dir)
+    for name, payload in sorted(snapshot.payloads.items()):
+        log.info("  %-14s %s", name, _describe(payload))
+    return 0
+
+
+def _fetch_from_support_file(args: argparse.Namespace) -> int:
+    """Populate the snapshot cache from a support file instead of a controller.
+
+    Deliberately writes the same cache `fetch` writes, so every render option,
+    including per-network diagrams, overrides and obfuscation, works afterwards
+    without knowing the difference. No credentials are read and no request is
+    made, which is what makes a support file a safe thing to be sent.
+    """
+    snapshot = load_support_file(args.support_file, args.support_site)
     snapshot.write(args.cache_dir)
     log.info("Wrote snapshot to %s/", args.cache_dir)
     for name, payload in sorted(snapshot.payloads.items()):
@@ -387,6 +410,21 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Where downloaded artwork is cached (default: {DEFAULT_ASSET_CACHE}). "
         "Kept separate from --cache-dir so a read-only snapshot directory stays clean.",
     )
+    parser.add_argument(
+        "--support-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Read the topology from a UniFi support file (.tgz) instead of a "
+        "controller. Needs no credentials and no network access.",
+    )
+    parser.add_argument(
+        "--support-site",
+        default=None,
+        metavar="NAME",
+        help="Which site to map from a multi-site support file "
+        "(default: the one with the most devices)",
+    )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"unifi-map {__version__}")
@@ -489,7 +527,9 @@ def build_parser() -> argparse.ArgumentParser:
         "aspect ratio (0 disables; higher is taller and narrower; default 12)",
     )
 
-    sub.add_parser("fetch", help="Fetch and cache controller data").set_defaults(func=cmd_fetch)
+    sub.add_parser(
+        "fetch", help="Cache controller data (or read --support-file instead)"
+    ).set_defaults(func=cmd_fetch)
     sub.add_parser(
         "render", parents=[render_flags], help="Render diagrams from cache"
     ).set_defaults(func=cmd_render)
@@ -518,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
     except GraphvizMissing as exc:
         log.error("%s", exc)
         return 3
-    except (UniFiError, GraphvizError) as exc:
+    except (UniFiError, GraphvizError, SupportFileError) as exc:
         log.error("%s", exc)
         return 1
 

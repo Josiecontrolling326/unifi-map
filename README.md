@@ -186,11 +186,52 @@ controller cannot place, so those behaviours are visible too.
 
 Regenerate it with `make demo-snapshot` (see `scripts/make_demo_snapshot.py`).
 
+## Mapping from a support file
+
+If you would rather not hand this tool an API key, or you want to map a network
+you cannot reach, point it at a console support file instead. There are no
+credentials involved and nothing touches the network:
+
+```bash
+unifi-map all --support-file support-XXXX-1234567890.tgz
+```
+
+Generate one in the console under **Settings > System > Support File**. It is a
+large archive, typically around 150 MiB.
+
+This is also the practical way to send someone else a topology for a bug report,
+since a support file needs no account and no access to your console.
+
+What you get is very close to a live fetch. Verified against the same network
+read both ways, the infrastructure and the wireless client list came out
+identical, and VLAN names, subnets, switch port numbers, SSIDs, client addresses,
+the ISP name and Protect camera artwork all survive.
+
+The one real loss is **client product artwork**. The controller keeps a settled
+fingerprint for each client; a support file does not carry it. The gateway's DPI
+engine does record its own guess, which this tool uses where the gateway is
+confident, but that covers a minority of clients. The rest fall back to glyphs.
+UniFi hardware appearing as a client is unaffected and still draws properly.
+
+Two smaller caveats:
+
+- Client addresses come from the gateway's DHCP leases and neighbour table, so a
+  client that never took a lease and had gone quiet may have no address shown.
+- Only the LAN networks appear. The controller's live network list also includes
+  WAN and VPN entries, which no client belongs to and which nothing draws.
+
+For a console with more than one site, the largest is mapped and a warning says
+so; pass `--support-site NAME` to choose another.
+
+Only seven files are ever read out of the archive, as a stream. It is never
+unpacked, which matters because a support file also contains extensive logs.
+
 ## Usage
 
 ```bash
 unifi-map all                              # fetch + render
 unifi-map fetch                            # snapshot the controller into cache/
+unifi-map fetch --support-file FILE.tgz     # or read a support file instead
 unifi-map render                           # render from the cached snapshot
 unifi-map render --per-network              # one diagram per VLAN as well
 unifi-map render --no-clients               # infrastructure only

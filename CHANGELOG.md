@@ -14,6 +14,19 @@ from there, so there is only ever one number to change.
 
 ### Added
 
+- `--support-file` reads the topology from a UniFi support file archive instead
+  of a controller. It needs no credentials and no network access, which makes it
+  a safe way to share a real topology when reporting a bug. Add `--support-site`
+  to pick a site from a multi-site archive.
+
+  Against a live fetch of the same network it produced identical infrastructure
+  and an identical wireless client count. VLAN names, subnets, switch port
+  numbers, SSIDs, client addresses, the ISP name and Protect camera artwork all
+  survive. The main loss is client product artwork: a support file does not
+  carry the controller's settled fingerprint for each client, only the gateway's
+  own DPI guess, which is used where it is confident and ignored where it is
+  not, so most clients fall back to glyphs.
+
 - Manual overrides are now applied, not just parsed. `--overrides` (or an
   `overrides.toml` in the working directory) can add links the controller cannot
   see, declare that one node runs inside another, rename a device, supply your

@@ -1,0 +1,508 @@
+"""Read a UniFi support file as an alternative to querying a controller.
+
+A support file is the archive the console produces under Settings > System >
+Support File. It contains, among a great deal of else, everything this tool
+needs to draw a map, which makes it a second input worth supporting: it needs no
+credentials and no network access, so it is a safe thing for someone to hand
+over when reporting a bug about their own topology.
+
+The output is a `Snapshot` carrying the same payload keys, in the same shapes,
+that `client.py` produces from the live API. Everything downstream of `model.py`
+is therefore unchanged and unaware of where the data came from.
+
+Two of the payloads are reconstructed rather than copied, because the archive
+stores them differently from the endpoints they stand in for:
+
+* `networkconf` comes from the gateway's own `network_table`, which carries the
+  same `_id`, `name`, `vlan` and `ip_subnet` fields as `rest/networkconf`. The
+  archive's `setting.json` looks like the obvious place for this and is not: its
+  contents are replaced with `**dynamic-hidden**`.
+* `client_active` is assembled from the topology graph's CLIENT vertices joined
+  to their edges, with addresses recovered from the gateway's DHCP leases and
+  neighbour table.
+
+What genuinely is not in the archive is the client fingerprint (`dev_id`), so
+clients fall back to the glyph renderer rather than showing product artwork.
+Devices are unaffected: `devices.json` carries `sysid`, which is the artwork
+join key.
+
+The archive is large (150 MiB and several thousand entries is typical) and full
+of logs that are none of our business, so it is read as a stream and only the
+handful of members below are ever decoded.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import json
+import logging
+import tarfile
+from pathlib import Path
+from typing import Any
+
+from .client import Snapshot
+
+log = logging.getLogger(__name__)
+
+# Members we read, keyed by a short internal name. Matched against the tail of
+# each archive path, because everything sits under a `support-<id>/` directory
+# whose name varies per file.
+MEMBERS: dict[str, str] = {
+    "devices": "unifi/devices.json",
+    "topology": "unifi/topology.json",
+    "infrastructure": "unifi/infrastructure.json",
+    # The gateway's DHCP leases: MAC, address and the name the client asked for.
+    "leases": "system/run/dnsmasq.lease",
+    # The neighbour (ARP) table, which also covers statically addressed hosts
+    # that never took a lease.
+    "neighbours": "system/network/ip-neigh",
+    # Only present when Protect is installed. Protect is the one authoritative
+    # answer to whether a MAC is a camera, which is how UniFi hardware sitting
+    # on a switch port as a client gets the right artwork instead of an
+    # ambiguous guess.
+    "protect_cameras": "unifi-protect/cameras/cameras.json",
+    # The gateway's DPI engine: address, hostname and an ML fingerprint guess
+    # per host. Read as a last-resort address source and, above
+    # MIN_FINGERPRINT_CONFIDENCE, as a fingerprint. See _dpi_hosts.
+    "dpi": "system/network/dpi-util-fprint-stats",
+}
+
+# `ml.deviceNameID` is in the same id space as the controller's `dev_id`, but it
+# is the gateway's live guess rather than the controller's settled answer, and
+# it carries its own confidence. Checked against a live fetch of the same
+# network: of seven hosts carrying a guess, four matched the controller and
+# three did not, at confidences 25, 3 and 6. The one high-confidence guess (94)
+# was right. There is no clean separation lower down (a 5 agreed, a 6 did not),
+# so anything below this is discarded rather than drawn. Wrong product artwork
+# is worse than an honest glyph.
+MIN_FINGERPRINT_CONFIDENCE = 80
+
+# A support file is attacker-supplied data as far as this tool is concerned: the
+# whole point is that someone else can send you one. Decompressed members are
+# held in memory, so cap them rather than trusting the archive's own headers.
+MAX_MEMBER_BYTES = 256 * 1024 * 1024
+MAX_TOTAL_BYTES = 512 * 1024 * 1024
+
+
+class SupportFileError(RuntimeError):
+    """Raised when a support file is unreadable or missing what we need."""
+
+
+def _read_members(path: Path) -> dict[str, bytes]:
+    """Pull the wanted members out of the archive in a single streaming pass.
+
+    Opened in stream mode (`r|gz`), so the archive is never seeked and never
+    held in memory whole. Nothing is written to disk: members are decoded into
+    memory and everything else is skipped as it goes past.
+    """
+    found: dict[str, bytes] = {}
+    total = 0
+    try:
+        with tarfile.open(path, "r|gz") as archive:
+            for member in archive:
+                if len(found) == len(MEMBERS):
+                    break
+                # Skip anything that is not a plain file. A support file has no
+                # business containing links or devices, and refusing them here
+                # means we never have to reason about what one would mean.
+                if not member.isfile():
+                    continue
+                name = next(
+                    (key for key, tail in MEMBERS.items() if member.name.endswith("/" + tail)),
+                    None,
+                )
+                if name is None or name in found:
+                    continue
+                if member.size > MAX_MEMBER_BYTES:
+                    raise SupportFileError(
+                        f"{member.name} is {member.size} bytes, over the "
+                        f"{MAX_MEMBER_BYTES} byte limit. Refusing to read it."
+                    )
+                handle = archive.extractfile(member)
+                if handle is None:
+                    continue
+                data = handle.read(MAX_MEMBER_BYTES + 1)
+                if len(data) > MAX_MEMBER_BYTES:
+                    raise SupportFileError(
+                        f"{member.name} expands past the {MAX_MEMBER_BYTES} byte limit."
+                    )
+                total += len(data)
+                if total > MAX_TOTAL_BYTES:
+                    raise SupportFileError(
+                        f"Support file members exceed {MAX_TOTAL_BYTES} bytes in total."
+                    )
+                found[name] = data
+    except tarfile.TarError as exc:
+        raise SupportFileError(f"{path} is not a readable gzipped tar archive: {exc}") from exc
+    except OSError as exc:
+        raise SupportFileError(f"Could not read {path}: {exc}") from exc
+    return found
+
+
+def _load_json(members: dict[str, bytes], name: str) -> Any:
+    raw = members.get(name)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise SupportFileError(
+            f"{MEMBERS[name]} in the support file is not valid JSON: {exc}"
+        ) from exc
+
+
+def _pick_site(devices: Any, requested: str | None) -> tuple[str, list[dict[str, Any]]]:
+    """Choose which site to map, and return its device records.
+
+    `devices.json` is a list of single-key objects, one per site, plus a `super`
+    entry that is the controller's own pseudo-site and always empty. A console
+    with one site therefore still needs picking apart.
+    """
+    sites: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(devices, list):
+        for block in devices:
+            if not isinstance(block, dict):
+                continue
+            for site, records in block.items():
+                if isinstance(records, list):
+                    sites[site] = [r for r in records if isinstance(r, dict)]
+
+    real = {name: records for name, records in sites.items() if name != "super"}
+    if not real:
+        raise SupportFileError(
+            "The support file's devices.json lists no sites. It may be from a "
+            "console version this tool has not seen."
+        )
+
+    if requested is not None:
+        if requested not in real:
+            available = ", ".join(sorted(real)) or "none"
+            raise SupportFileError(
+                f"No site named {requested!r} in this support file. Found: {available}"
+            )
+        return requested, real[requested]
+
+    if len(real) > 1:
+        # Picking silently would quietly map the wrong network, so say so.
+        chosen = max(real, key=lambda name: len(real[name]))
+        log.warning(
+            "Support file holds %d sites (%s); mapping %r, which has the most "
+            "devices. Use --support-site to choose another.",
+            len(real),
+            ", ".join(sorted(real)),
+            chosen,
+        )
+        return chosen, real[chosen]
+
+    name = next(iter(real))
+    return name, real[name]
+
+
+def _site_block(payload: Any, site: str) -> dict[str, Any]:
+    """Pull one site's object out of a `{site: {...}}` file."""
+    if not isinstance(payload, dict):
+        return {}
+    block = payload.get(site)
+    if isinstance(block, dict):
+        return block
+    # Fall back to the sole entry when the site key does not line up, which
+    # keeps a single-site archive working if the naming ever diverges.
+    values = [v for v in payload.values() if isinstance(v, dict)]
+    return values[0] if len(values) == 1 else {}
+
+
+def _networkconf(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reconstruct `rest/networkconf` from the gateway's `network_table`.
+
+    Only the gateway carries it, and it holds the same identifying fields the
+    real endpoint returns, so VLAN names and subnets survive rather than
+    degrading to opaque ids.
+    """
+    for device in devices:
+        table = device.get("network_table")
+        if not isinstance(table, list):
+            continue
+        records = [
+            {
+                "_id": entry.get("_id"),
+                "name": entry.get("name"),
+                "vlan": entry.get("vlan"),
+                "ip_subnet": entry.get("ip_subnet"),
+                "is_guest": entry.get("is_guest"),
+                "purpose": entry.get("purpose"),
+                "enabled": entry.get("enabled"),
+            }
+            for entry in table
+            if isinstance(entry, dict) and entry.get("_id")
+        ]
+        if records:
+            return records
+    log.warning("No gateway network_table in the support file; VLAN names will be missing.")
+    return []
+
+
+def _parse_leases(raw: bytes | None) -> dict[str, tuple[str, str | None]]:
+    """MAC to (address, hostname) from a dnsmasq lease file.
+
+    Format is `<expiry> <mac> <address> <hostname> <client-id>`, with the
+    hostname given as `*` when the client did not send one.
+    """
+    leases: dict[str, tuple[str, str | None]] = {}
+    if not raw:
+        return leases
+    for line in raw.decode("utf-8", errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        mac, address, hostname = fields[1].lower(), fields[2], fields[3]
+        if not _is_address(address):
+            continue
+        leases[mac] = (address, None if hostname == "*" else hostname)
+    return leases
+
+
+def _parse_neighbours(raw: bytes | None) -> dict[str, str]:
+    """MAC to address from `ip neigh` output.
+
+    Covers hosts with static addresses, which never appear in a lease file. A
+    MAC can hold several addresses across VLANs; the first wins, and IPv4 is
+    preferred because that is what the rest of the map shows.
+    """
+    neighbours: dict[str, str] = {}
+    if not raw:
+        return neighbours
+    for line in raw.decode("utf-8", errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) < 2 or "lladdr" not in fields:
+            continue
+        # A neighbour the gateway could not resolve tells us nothing.
+        if fields[-1] in {"FAILED", "INCOMPLETE"}:
+            continue
+        address = fields[0]
+        mac = fields[fields.index("lladdr") + 1].lower()
+        if not _is_address(address) or mac in neighbours:
+            continue
+        neighbours[mac] = address
+    return neighbours
+
+
+def _dpi_hosts(raw: bytes | None) -> dict[str, dict[str, Any]]:
+    """MAC to {ip, dev_id} from the gateway's DPI fingerprint stats.
+
+    The file is a JSON object behind a `Response:` preamble, so it is not quite
+    JSON and cannot be handed straight to the parser.
+
+    Two things are taken from it, with different levels of trust. The address is
+    an observation and is used freely, as a fallback behind the lease and
+    neighbour tables. The fingerprint is an inference and is used only when the
+    gateway itself is confident; see MIN_FINGERPRINT_CONFIDENCE.
+    """
+    hosts: dict[str, dict[str, Any]] = {}
+    if not raw:
+        return hosts
+    text = raw.decode("utf-8", errors="replace")
+    start = text.find("{")
+    if start < 0:
+        return hosts
+    try:
+        payload = json.loads(text[start:])
+    except ValueError:
+        log.debug("DPI fingerprint stats were not parseable; skipping them.")
+        return hosts
+
+    entries = payload.get("hosts") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return hosts
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        mac = str(entry.get("mac") or "").lower()
+        if not mac:
+            continue
+        record: dict[str, Any] = {}
+        address = entry.get("ip")
+        if isinstance(address, str) and _is_address(address):
+            record["ip"] = address
+        ml = entry.get("ml")
+        if isinstance(ml, dict):
+            confidence = ml.get("confidence")
+            dev_id = ml.get("deviceNameID")
+            if (
+                isinstance(confidence, int | float)
+                and confidence >= MIN_FINGERPRINT_CONFIDENCE
+                and isinstance(dev_id, int)
+            ):
+                record["dev_id"] = dev_id
+        if record:
+            hosts[mac] = record
+    return hosts
+
+
+def _is_address(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _client_active(
+    topology: dict[str, Any],
+    leases: dict[str, tuple[str, str | None]],
+    neighbours: dict[str, str],
+    dpi: dict[str, dict[str, Any]],
+    guest_networks: set[str],
+) -> list[dict[str, Any]]:
+    """Rebuild `stat/sta` records from topology vertices and their edges.
+
+    Each CLIENT vertex has exactly one edge naming it as the downlink, which
+    carries the uplink, the port, and for wireless the SSID and band. That is
+    everything the client builder reads apart from the fingerprint, which the
+    archive does not contain.
+    """
+    vertices = topology.get("vertices")
+    edges = topology.get("edges")
+    if not isinstance(vertices, list) or not isinstance(edges, list):
+        return []
+
+    by_downlink: dict[str, dict[str, Any]] = {}
+    for edge in edges:
+        if isinstance(edge, dict):
+            mac = str(edge.get("downlinkMac") or "").lower()
+            if mac:
+                by_downlink.setdefault(mac, edge)
+
+    clients: list[dict[str, Any]] = []
+    for vertex in vertices:
+        if not isinstance(vertex, dict) or vertex.get("type") != "CLIENT":
+            continue
+        mac = str(vertex.get("mac") or "").lower()
+        if not mac:
+            continue
+
+        edge = by_downlink.get(mac, {})
+        wired = str(edge.get("type", "")).upper() == "WIRED"
+        network_id = edge.get("networkId")
+        address, lease_name = leases.get(mac, (None, None))
+        seen = dpi.get(mac, {})
+        record: dict[str, Any] = {
+            "mac": mac,
+            "name": vertex.get("name") or None,
+            # The name the client asked DHCP for, used only when the console
+            # has no alias of its own for it.
+            "hostname": lease_name,
+            "is_wired": wired,
+            # A lease is authoritative, the neighbour table is a live
+            # observation, and DPI is a last resort.
+            "ip": address or neighbours.get(mac) or seen.get("ip"),
+            "network_id": network_id,
+            "is_guest": network_id in guest_networks,
+        }
+        if seen.get("dev_id") is not None:
+            record["dev_id"] = seen["dev_id"]
+        if wired:
+            record["sw_mac"] = edge.get("uplinkMac")
+            # The port is the one occupied on the *uplink* device;
+            # downlinkPortNumber is the client's own interface and is absent.
+            record["sw_port"] = edge.get("uplinkPortNumber")
+        else:
+            record["ap_mac"] = edge.get("uplinkMac")
+            record["essid"] = edge.get("essid")
+            record["radio"] = edge.get("radioBand")
+        clients.append(record)
+    return clients
+
+
+def _health(infrastructure: dict[str, Any]) -> list[dict[str, Any]]:
+    """A `stat/health` WAN subsystem record from `ispData`.
+
+    The archive names every WAN, active or not. The active one is what the
+    Internet node should be labelled with; failing that, the highest priority.
+    """
+    isp_data = infrastructure.get("ispData")
+    if not isinstance(isp_data, list):
+        return []
+    entries = [e for e in isp_data if isinstance(e, dict)]
+    if not entries:
+        return []
+    active = next((e for e in entries if e.get("isActive")), None)
+    if active is None:
+        active = min(entries, key=lambda e: e.get("priority") or 99)
+    return [
+        {
+            "subsystem": "wan",
+            "isp_name": active.get("name"),
+            "wan_ip": active.get("wanIp"),
+            # Not read by the renderer today, but it is the key a brand-logo
+            # lookup would need, and throwing it away here would hide that.
+            "asn": active.get("asn"),
+        }
+    ]
+
+
+def load_support_file(path: Path, site: str | None = None) -> Snapshot:
+    """Read *path* and return a Snapshot equivalent to a live fetch.
+
+    Raises `SupportFileError` if the archive is unreadable or does not carry
+    the device and topology data a map needs.
+    """
+    members = _read_members(path)
+    missing = [MEMBERS[name] for name in ("devices", "topology") if name not in members]
+    if missing:
+        raise SupportFileError(
+            f"{path} is missing {', '.join(missing)}. It may not be a UniFi "
+            "support file, or may be from a console without the Network application."
+        )
+
+    site_name, devices = _pick_site(_load_json(members, "devices"), site)
+    topology = _site_block(_load_json(members, "topology"), site_name)
+    infrastructure = _site_block(_load_json(members, "infrastructure"), site_name)
+
+    networks = _networkconf(devices)
+    guest_networks = {n["_id"] for n in networks if n.get("is_guest")}
+    clients = _client_active(
+        topology,
+        _parse_leases(members.get("leases")),
+        _parse_neighbours(members.get("neighbours")),
+        _dpi_hosts(members.get("dpi")),
+        guest_networks,
+    )
+
+    log.info(
+        "Read site %r from %s: %d devices, %d clients, %d networks.",
+        site_name,
+        path.name,
+        len(devices),
+        len(clients),
+        len(networks),
+    )
+    addressed = sum(1 for c in clients if c.get("ip"))
+    if clients and addressed < len(clients):
+        log.info(
+            "  %d of %d clients have an address; the rest took no DHCP lease "
+            "and were not in the neighbour table.",
+            addressed,
+            len(clients),
+        )
+    fingerprinted = sum(1 for c in clients if c.get("dev_id") is not None)
+    log.info(
+        "  %d of %d clients carry a confident enough fingerprint for product "
+        "artwork; the rest fall back to glyphs. UniFi hardware appearing as a "
+        "client is unaffected.",
+        fingerprinted,
+        len(clients),
+    )
+
+    payloads: dict[str, Any] = {
+        "device": devices,
+        "client_active": clients,
+        "networkconf": networks,
+        "health": _health(infrastructure),
+        "topology": topology,
+    }
+    # Absent unless Protect is installed, and the map is fine without it.
+    cameras = _load_json(members, "protect_cameras")
+    if isinstance(cameras, list):
+        payloads["protect_cameras"] = cameras
+    return Snapshot(payloads=payloads)
