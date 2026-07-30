@@ -546,9 +546,12 @@ unifi-map render --obfuscate --theme dark
 ![The same real network, obfuscated](docs/images/example-obfuscated-dark.png)
 
 *A real network, obfuscated. Every device is a pseudonym, addresses are
-renumbered, and the connections, roles and artwork are untouched. Note the four
-clients hanging off one host near the middle: those are VMs behind a NAS, which
-`stat/sta` cannot place and the controller's own graph can.*
+renumbered, and the connections, roles and port numbers are untouched. Product
+artwork stays, because it says what a device is rather than whose it is; the one
+exception is the ISP, whose brand mark is replaced by the generic cloud on the
+Internet node. Note `client-11`, with four clients hanging off it rather than off
+a switch: those are VMs behind a NAS, which `stat/sta` cannot place and the
+controller's own graph can.*
 
 **Replaced:** hostnames and device names, IP addresses, MAC addresses (including
 the node identifiers in the DOT and draw.io output, which are derived from them),
