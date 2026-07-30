@@ -1,5 +1,7 @@
 # unifi-map
 
+[![CI](https://github.com/gitkodak/unifi-map/actions/workflows/ci.yml/badge.svg)](https://github.com/gitkodak/unifi-map/actions/workflows/ci.yml)
+
 Export a UniFi network topology as **zoomable vector diagrams** and **editable
 draw.io files**, using real Ubiquiti product artwork.
 

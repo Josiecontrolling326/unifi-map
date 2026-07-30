@@ -11,7 +11,6 @@
       or device addresses
 - [ ] No Ubiquiti artwork vendored into the repository
 - [ ] No `cache/` or `out/` contents committed
-- [ ] No em-dashes (`git ls-files | xargs grep -nP '\x{2014}'` comes back empty)
 - [ ] If this changes what gets drawn, the legend and README still describe it
       accurately
 

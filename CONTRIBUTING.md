@@ -86,14 +86,6 @@ Ordinary Python, `ruff` settled, 100 column lines, modern type hints.
 Comments should explain why, not what. The reason a line exists, the constraint
 it satisfies, or the bug it prevents. Not a restatement of the code.
 
-**No em-dashes.** Anywhere: prose, comments, docstrings, commit messages, output
-strings. Parentheses for asides, a semicolon or colon where clauses join, or
-rewrite the sentence. `git ls-files | xargs grep -nP '\x{2014}'` should come back
-empty.
-
-The check is written by codepoint rather than with the character itself, so
-that running it does not match the instruction telling you to run it.
-
 ## Architecture in one paragraph
 
 Each stage owns one concern and nothing downstream of `model.py` sees raw

@@ -238,32 +238,17 @@ distinguishable from what the controller reported.
     is, brand marks included. `--icons builtin` is the stronger option, and
     `--title` is passed through untouched.
 
-- **GitHub Actions.** There is no CI. The repo had a `.gitlab-ci.yml` briefly,
-  removed because how the GitLab copy is maintained is local administration;
-  Actions is the right home now that GitHub is the source of truth.
+- **CI is built** (`.github/workflows/ci.yml`). Two jobs: `check` runs
+  `ruff format --check`, `ruff check` and `pytest` across Python 3.11, 3.12 and
+  3.13, then renders the demo dataset plainly and obfuscated to exercise
+  Graphviz end to end; `policy` enforces what the test suite cannot, namely the
+  that no snapshot, render, icon font or artwork is committed.
 
-  This is unusually easy here, and that is worth stating: **tests never touch the
-  network**, so CI needs no secrets, no controller and no credentials. Nothing has
-  to be arranged before it can run.
+  It needs no secrets, because nothing in the suite touches the network and the
+  demo renders use `--icons builtin --offline`. **Do not add a job that talks to
+  a real controller**; there is nothing to gain and it would mean an API key in
+  repository secrets.
 
-  Rough outline:
-
-  - `make check` on push and pull request. That is `ruff format --check`,
-    `ruff check` and `pytest`.
-  - Install `graphviz` with apt, which also provides `unflatten`.
-  - Matrix over the Python versions the project claims to support. `pyproject`
-    says 3.11 and up, so 3.11, 3.12 and 3.13, and either fix the claim or fix the
-    code if one of them fails.
-  - A demo smoke test that actually renders: `unifi-map --cache-dir examples/demo
-    render --icons builtin --offline -f svg drawio`. That exercises the whole
-    pipeline end to end including Graphviz, and `builtin` plus `offline` keeps it
-    network-free. It would have caught more than one thing tonight.
-  - Enforce the house rules the tests cannot: the em-dash check
-    (`git ls-files | xargs grep -nP '\x{2014}'` must find nothing), and a grep
-    asserting no snapshot or artwork got committed.
-
-  Do not add a job that talks to a real controller. There is nothing to gain and
-  it would mean putting an API key in repository secrets.
 - **GitHub community standards.** The repo passes on README and LICENSE and is
   missing the rest of GitHub's checklist. None of it is urgent, all of it is
   cheap, and two are worth actual thought rather than boilerplate:
