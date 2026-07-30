@@ -373,6 +373,29 @@ that not one original hostname, address, MAC, network name or SSID appears in an
 of them, because a mode that cleans one format and leaves another readable would
 be worse than none at all.
 
+## Fixing a wrong icon in the console instead
+
+Before reaching for an overrides file, try the console. UniFi lets you change a
+client's device fingerprint in its settings, and **this tool already follows
+that**: a client's `dev_id_override` is preferred over the fingerprint the
+controller guessed. Correct it once in the console and every render afterwards
+picks it up, with nothing to configure here.
+
+The catch is the console's own picker, which is small and only matches from the
+start of a name. Searching "Apple iPhone" finds something; "iphone" finds
+nothing.
+
+Two community tools make that searchable, both browser-side:
+[hubaker/UniFi-Icon-Browser](https://github.com/hubaker/UniFi-Icon-Browser) and
+the more actively extended fork
+[CANTI-BOT/UniFi-Icon-Browser](https://github.com/CANTI-BOT/UniFi-Icon-Browser),
+which adds partial-match search across roughly 5,500 icons and works with
+self-hosted controllers. Neither is affiliated with this project.
+
+Overrides are still the answer when you have no console access, when the device
+you want is not in Ubiquiti's catalogue at all, or when you want artwork of your
+own.
+
 ## Manual overrides
 
 Three things a controller cannot tell you, which you can state in an

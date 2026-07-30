@@ -189,6 +189,39 @@ Implemented end to end: schema, loader, `resolve()` and `apply()`. Notes:
 - User artwork is loaded through `assets.local_icon()`, which raises rather than
   falling back, and override icons are merged over looked-up ones in the CLI.
 
+## Support files could be a second input, and nearly work already
+
+Someone suggested a UniFi support file carries what this tool needs. Inspected
+one on 2026-07-30 (154 MiB, 2451 entries) and it very nearly does. Under
+`unifi/`:
+
+- `devices.json` holds the full device records for each site, 67 fields
+  including `mac`, `model`, `sysid`, `type`, `uplink`, `port_table`, `ip` and
+  `state`. That is `stat/device` in all but name, so device artwork would work.
+- `topology.json` is the same graph as the v2 endpoint: vertices typed DEVICE or
+  CLIENT, and edges carrying `downlinkMac`, `uplinkMac`, `type`, `essid`,
+  `protocol` and `networkId`. Every connection, including client behind client.
+- `infrastructure.json` carries `ispData` with the provider name, **asn** and
+  WAN address, plus `gatewayMac` and `wanMode`.
+
+What is absent, and what it costs:
+
+- **Client records.** CLIENT vertices carry only `mac`, `name` and `type`. No IP
+  address, no `dev_id`, no `network_id`, no `is_guest`. So clients would render
+  with names and correct connections but no addresses and no client artwork.
+- **Network names.** Edges carry `networkId`, so VLAN grouping still works, but
+  the names would be opaque ids unless `setting.json` turns out to hold
+  `networkconf` (its `site_settings` key was not inspected).
+
+So a `--support-file` mode is worth building and would produce a genuinely
+useful map, mostly losing client artwork and addresses. It also needs no
+credentials, which makes it the obvious way for someone to share a real
+topology for a bug report. Note the file is enormous and full of logs; read only
+the three JSON files above and never extract the whole archive.
+
+Incidentally `ispData.asn` is in there too, which is another route to the ISP
+logo question.
+
 ## Data hygiene
 
 `cache/` and `out/` are gitignored; snapshots are written `0600`. A snapshot is a
