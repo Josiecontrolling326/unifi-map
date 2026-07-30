@@ -492,3 +492,28 @@ Constraints worth keeping:
 
 `cache/` and `out/` are gitignored; snapshots are written `0600`. A snapshot is a
 full MAC/hostname/IP inventory. Never commit one or paste it into an issue.
+
+**A support file is worse, and the warnings must stay loud.** `--support-file`
+exists so a topology can be mapped without an API key, which makes it very easy
+for a reader to conclude the archive itself is safe to pass around. It is the
+opposite: it is a full inventory plus SSIDs, subnets, WAN addresses and client
+activity logs.
+
+UniFi's redaction is `system/tmp/pii/pii_filter` inside the archive, a list of
+`sed` expressions rewriting matching values to `<FILTERED>`. It matches on field
+**names**, so it cannot be complete by construction. Verified on one real file
+(UniFi OS 5.1.26 / Network 10.5.67): most credential-shaped fields were
+`<FILTERED>`, but unique unredacted access tokens remained in
+`unifi/teleport.json`.
+
+Note this is *not* the same as "it contains plaintext WiFi passwords", which was
+the reason the check was run. No `hostapd`, `wpa_supplicant` or WLAN
+configuration was found in that archive at all, and no passphrase field survived
+in plaintext. The conclusion holds anyway, for a better reason: a name-matching
+filter with a demonstrated gap should not be trusted to have caught everything.
+Do not weaken the warning on the grounds that some specific secret turned out to
+be absent.
+
+The warning lives in three places on purpose: `README.md` beside the instructions
+for generating one, `SECURITY.md` in full, and a `log.warning` in
+`_fetch_from_support_file` so it is seen by someone who read neither.

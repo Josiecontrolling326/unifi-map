@@ -108,6 +108,18 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
     without knowing the difference. No credentials are read and no request is
     made, which is what makes a support file a safe thing to be sent.
     """
+    # Said here rather than only in the docs, because this is the moment someone
+    # has the archive in hand and is deciding what to do with it next. The
+    # feature exists so a topology can be shared without an API key, which makes
+    # it easy to conclude the file itself is safe to pass around. It is not.
+    log.warning(
+        "Note: a support file is highly sensitive. It holds every MAC, hostname, "
+        "IP and lease on the network, the SSIDs and subnets, the WAN addresses, "
+        "and logs of client activity. UniFi redacts some credentials by field "
+        "name, but that pass is incomplete. Keep it protected and delete it when "
+        "you are done; see SECURITY.md."
+    )
+
     store = AssetStore(cache_dir=args.asset_cache, offline=getattr(args, "offline", False))
     # Not in the archive. Downloading it is opt-in, because someone reading a
     # support file has often chosen this path precisely to avoid outbound

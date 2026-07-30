@@ -199,8 +199,31 @@ unifi-map all --support-file support-XXXX-1234567890.tgz
 Generate one in the console under **Settings > System > Support File**. It is a
 large archive, typically around 150 MiB.
 
-This is also the practical way to send someone else a topology for a bug report,
-since a support file needs no account and no access to your console.
+> **Treat a support file as a secret.** It is one of the most sensitive things
+> your console can produce. It contains every MAC address, hostname, IP and DHCP
+> lease on your network, your SSIDs, VLANs and subnets, your public WAN
+> addresses and ISP, and extensive logs including per-client connection history.
+>
+> UniFi does redact *some* credentials on the way out, but the filter matches on
+> field **names** with regular expressions, so anything it does not recognise
+> passes through. On one real support file, most credential fields were indeed
+> filtered while a set of unredacted access tokens remained.
+>
+> So do not ask whether one particular secret is in there. Assume anything the
+> console knows may be. Keep it encrypted, do not attach it to a ticket or paste
+> it into a chat, and delete it when you are done. `SECURITY.md` goes into more
+> detail.
+>
+> This tool reads only seven files out of the archive and never unpacks it, but
+> that limits *this tool*, not the file.
+
+Sending one to someone else is therefore a bigger favour than it looks. If the
+question is really about topology, an obfuscated render is usually a better
+thing to hand over:
+
+```bash
+unifi-map all --support-file support-XXXX.tgz --obfuscate
+```
 
 **Reading a support file contacts nothing.** No controller, no credentials, and
 no outbound requests of any kind. If you want client product artwork, that needs

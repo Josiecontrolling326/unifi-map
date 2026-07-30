@@ -145,6 +145,45 @@ dataset (`make demo`). It is entirely synthetic.
 When filing an issue, redact or use the demo data. Nobody needs your real
 inventory to help you.
 
+## A support file is a secret. Treat it like a password vault
+
+`--support-file` was added partly so people could share a topology without
+sharing an API key. **Do not read that as "a support file is safe to share."
+It is the opposite.** A support file is one of the most sensitive artefacts your
+console can produce, and it deserves the same handling as a credential store:
+encrypted at rest, never in a ticket, never in a chat window, never in a
+repository, and deleted when you are done with it.
+
+UniFi does apply a redaction pass before writing one. You can read it yourself
+inside the archive at `system/tmp/pii/pii_filter`: it is a list of `sed`
+expressions that rewrite matching values to `<FILTERED>`. That is worth knowing
+because of how it works, not because of what it catches:
+
+- **It matches on field *names*, by regular expression.** Anything whose key does
+  not match one of those patterns passes through untouched. A filter of that
+  shape cannot be complete, and cannot be assumed complete after a firmware
+  update adds new fields.
+- **It is demonstrably incomplete today.** Inspecting one real support file
+  (UniFi OS 5.1.26, Network 10.5.67), most credential-shaped fields were indeed
+  `<FILTERED>`, but a set of long, unique, unredacted access tokens remained in
+  `unifi/teleport.json`.
+
+So do not reason about a support file by asking "is *this particular* secret in
+there?" Assume anything the console knows may be in there, because the archive
+also contains, entirely unredacted:
+
+- Every MAC address, hostname, IP address and DHCP lease on the network.
+- Your SSIDs, VLAN names and subnets.
+- Your public WAN addresses, your ISP and its ASN.
+- Extensive logs, including per-client connection history.
+
+This tool reads only seven files out of the archive and never unpacks it, but
+that constrains **this tool**, not the file. Once the archive exists on disk, its
+whole contents exist on disk.
+
+If someone asks you for a support file to debug a topology problem, consider
+whether an obfuscated render (`--obfuscate`) answers the question instead.
+
 ## Outbound network access
 
 Beyond your controller, the tool fetches device artwork from Ubiquiti's public
