@@ -127,11 +127,39 @@ class AssetStore:
     def font_map_path(self) -> Path:
         return self.cache_dir / FONT_MAP_FILE
 
+    @property
+    def fingerprint_db_path(self) -> Path:
+        return self.cache_dir / "client-fingerprints.json"
+
     def save_icon_font(self, font: bytes, codepoints: dict[str, int]) -> None:
         """Cache the controller's icon font. Never vendored into the repo."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.font_path.write_bytes(font)
         self.font_map_path.write_text(json.dumps(codepoints, indent=2), encoding="utf-8")
+
+    def save_fingerprint_db(self, payload: Any) -> None:
+        """Cache the controller's client fingerprint database.
+
+        Kept in the asset cache rather than the snapshot because it describes
+        Ubiquiti's catalogue, not this network, and outlives any one snapshot.
+        A support file does not contain it, so having it here is what lets a
+        support file resolve client artwork at all. Like all artwork, it is
+        Ubiquiti's data: cached at runtime, never vendored.
+        """
+        if not isinstance(payload, dict) or not payload.get("dev_ids"):
+            return
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.fingerprint_db_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def fingerprint_db(self) -> dict[str, Any] | None:
+        """The cached fingerprint database, or None if it was never fetched."""
+        if not self.fingerprint_db_path.is_file():
+            return None
+        try:
+            payload = json.loads(self.fingerprint_db_path.read_text(encoding="utf-8"))
+        except ValueError:
+            return None
+        return payload if isinstance(payload, dict) and payload.get("dev_ids") else None
 
     def glyph_codepoints(self) -> dict[str, int]:
         if not self.font_map_path.is_file():

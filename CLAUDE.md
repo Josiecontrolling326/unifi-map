@@ -285,27 +285,53 @@ Three earlier conclusions here were wrong, all from not looking hard enough:
 - **Client addresses are recoverable**, from the DHCP lease file plus the
   neighbour table, which between them covered 43 of 47 clients. Neither is under
   `unifi/`, which is why the first pass declared them absent.
-- **Client fingerprints partly exist**, in
-  `system/network/dpi-util-fprint-stats`. This was found by grepping the
-  extracted tree for known addresses, after two passes of mine had concluded no
-  fingerprint data was present. It was in the manifest I already had; my greps
-  covered `lease|dhcp|client|arp` and never `dpi` or `fprint`.
+- **Client fingerprints are recoverable**, from the client's own name; see
+  below. Two passes concluded otherwise. The first missed
+  `system/network/dpi-util-fprint-stats` entirely, though it sat in a manifest
+  already generated, because the greps covered `lease|dhcp|client|arp` and never
+  `dpi` or `fprint`. The second found that file and stopped there, having
+  decided the answer was "a fingerprint field, or nothing". The thing that
+  worked was grepping for a **known `dev_id` value** and for known MACs, rather
+  than for the name of the thing being looked for.
 
 That last file needs care rather than enthusiasm. It is the gateway's live DPI
 engine, and `ml.deviceNameID` is genuinely the same id space as `dev_id`, but it
 is an inference with its own `confidence`, not the controller's settled answer.
-Checked against a live fetch of the same network: 38 hosts listed, 7 carrying a
-guess, of which **4 matched the controller and 3 did not**, at confidences 25, 3
-and 6. The single high-confidence guess (94) was correct, and there is no clean
-separation lower down: a 5 agreed while a 6 disagreed. Hence
-`MIN_FINGERPRINT_CONFIDENCE = 80`, and hence the address from this file is
-trusted freely while the fingerprint is not. Drawing a printer as the wrong
-product on a 3% hunch breaks "never invent a product match" for no real gain.
+Hence `MIN_FINGERPRINT_CONFIDENCE = 80`: its address is trusted freely, its
+fingerprint only when the gateway is sure. It added no addresses at all on the
+network it was developed against (all 38 of its hosts already had one), and it
+is kept only because a network with a thin lease file may differ.
 
-Note also what it did *not* add: all 38 of its hosts already had an address from
-the lease or neighbour table, so it closed none of the four gaps, and every
-client already had a name, so its hostnames were redundant. It is kept as a
-fallback because a network with a thin lease file may differ.
+### Client artwork comes from the name, not from a fingerprint field
+
+The real join is that **the console names an un-aliased client
+`"<product name> <last two MAC octets>"`, and that product name is the
+fingerprint catalogue entry it resolved to.** The fingerprint is therefore
+present in the archive as text. `_dev_id_from_name()` reverses it: 12 clients
+resolved, 0 wrong.
+
+The strictness is load-bearing. The trailing octets must genuinely be that
+client's, which is what proves the console generated the name rather than a
+person, and the remaining text must equal exactly one catalogue entry. A looser
+substring rule was measured first and got 8 of 11 right, mapping a human-named
+`RokuUltraGreatRoom` onto `Roku Ultra` when the controller said `Roku Device`.
+Do not relax this back to containment.
+
+This needs the fingerprint database, which the archive lacks, so `AssetStore`
+caches it (`client-fingerprints.json`) on every live fetch, beside the artwork
+rather than in the snapshot, because it describes Ubiquiti's catalogue rather
+than one network. With it, 13 of 47 clients drew real product artwork and all 13
+matched the controller; without it, everything still renders as glyphs.
+
+Dead ends already checked, do not repeat: `mca-dump.fingerprints.hosts` carries
+`custom`, `ml` and `tdts` per host, but only `ml` shares the controller's id
+space (three Rokus show `tdts=292` where the controller says `27`), and it adds
+no coverage over the DPI file. `dpi-flow-stats` log lines
+(`fp ml for mac: ... [Name - id]@n%`) hold the ML top-3 but cover only 16 MACs
+and are logs. There is no client fingerprint index on the CDN:
+`static.ui.com/fingerprint/{0/,}{public,index,devices,fingerprint}.json` all
+return the same 19177-byte ui.com marketing page, as does a deliberately bogus
+path.
 
 Reading Protect's camera list keeps the other case that matters: UniFi hardware
 sitting on a switch port as a client still resolves its artwork, because the

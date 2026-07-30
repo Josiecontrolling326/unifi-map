@@ -79,9 +79,15 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     log.info("Reading %s (site %s)", config.host, config.site)
     snapshot = client.snapshot()
 
+    store = AssetStore(cache_dir=args.asset_cache)
+    # Kept beside the artwork rather than in the snapshot: it describes
+    # Ubiquiti's catalogue, not this network, and a support file has no copy of
+    # it, so caching it here is what lets `--support-file` resolve client icons.
+    store.save_fingerprint_db(snapshot.get("fingerprint"))
+
     try:
         font, codepoints = client.fetch_icon_font()
-        AssetStore(cache_dir=args.asset_cache).save_icon_font(font, codepoints)
+        store.save_icon_font(font, codepoints)
         log.info("Cached the controller's icon font (%d client glyphs).", len(codepoints))
     except UniFiError as exc:
         # Only needed for clients with no usable fingerprint; not fatal.
@@ -102,7 +108,13 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
     without knowing the difference. No credentials are read and no request is
     made, which is what makes a support file a safe thing to be sent.
     """
-    snapshot = load_support_file(args.support_file, args.support_site)
+    snapshot = load_support_file(
+        args.support_file,
+        args.support_site,
+        # Not in the archive. Whatever a previous live fetch cached is what
+        # makes client artwork possible here.
+        fingerprint_db=AssetStore(cache_dir=args.asset_cache).fingerprint_db(),
+    )
     snapshot.write(args.cache_dir)
     log.info("Wrote snapshot to %s/", args.cache_dir)
     for name, payload in sorted(snapshot.payloads.items()):

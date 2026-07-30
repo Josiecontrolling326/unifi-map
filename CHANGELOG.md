@@ -22,10 +22,14 @@ from there, so there is only ever one number to change.
   Against a live fetch of the same network it produced identical infrastructure
   and an identical wireless client count. VLAN names, subnets, switch port
   numbers, SSIDs, client addresses, the ISP name and Protect camera artwork all
-  survive. The main loss is client product artwork: a support file does not
-  carry the controller's settled fingerprint for each client, only the gateway's
-  own DPI guess, which is used where it is confident and ignored where it is
-  not, so most clients fall back to glyphs.
+  survive.
+
+  Client artwork is partial. A support file stores no fingerprint id, but a
+  client you have not renamed carries the console's own name for it, which is
+  the product it identified, and that is enough to look the product back up.
+  Clients you have named yourself fall back to glyphs. The lookup uses
+  Ubiquiti's fingerprint database, now cached during a live `fetch` so it is
+  available offline.
 
 - Manual overrides are now applied, not just parsed. `--overrides` (or an
   `overrides.toml` in the working directory) can add links the controller cannot

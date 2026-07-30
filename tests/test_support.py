@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
+from typing import ClassVar
 
 import pytest
 
@@ -399,6 +400,93 @@ class TestDpiFingerprints:
         path = tmp_path / "bad-dpi.tgz"
         _write_archive(path, members)
         assert len(load_support_file(path).get("client_active")) == 4
+
+
+class TestFingerprintFromName:
+    """Recovering `dev_id` from the name the console generated.
+
+    A client with no user alias is named "<product> <last two MAC octets>", and
+    that product name is the fingerprint entry the controller resolved to. So
+    the fingerprint survives in the archive after all, written as text.
+    """
+
+    DB: ClassVar[dict] = {
+        "dev_ids": {
+            "5282": {"name": "Govee Lyra"},
+            "2675": {"name": "Google Nest Hub"},
+            "292": {"name": "Google Home "},
+            "2110": {"name": "Roku Ultra"},
+            # Two entries sharing a name, so neither may be chosen.
+            "9001": {"name": "Twinned Thing"},
+            "9002": {"name": "Twinned Thing"},
+        }
+    }
+
+    def _archive(self, tmp_path, client_name, mac=WIFI_CLIENT, name="named.tgz"):
+        members = _default_members()
+        topology = _topology()
+        for vertex in topology["default"]["vertices"]:
+            if vertex["mac"] == mac:
+                vertex["name"] = client_name
+        members["unifi/topology.json"] = json.dumps(topology).encode()
+        path = tmp_path / name
+        _write_archive(path, members)
+        return path
+
+    def _dev_id(self, path, mac=WIFI_CLIENT):
+        snapshot = load_support_file(path, fingerprint_db=self.DB)
+        clients = {c["mac"]: c for c in snapshot.get("client_active")}
+        return clients[mac].get("dev_id")
+
+    def test_a_generated_name_resolves_to_its_fingerprint(self, tmp_path):
+        # WIFI_CLIENT ends dd:ee:ff:00:00:11, so the tail must be 00:11.
+        path = self._archive(tmp_path, "Govee Lyra 00:11")
+        assert self._dev_id(path) == 5282
+
+    def test_punctuation_and_spacing_differences_do_not_matter(self, tmp_path):
+        path = self._archive(tmp_path, "Google-Home 00:11")
+        assert self._dev_id(path) == 292
+
+    def test_a_human_chosen_name_is_refused(self, tmp_path):
+        # The real failure this rule exists to prevent: a substring rule mapped
+        # "RokuUltraGreatRoom" onto Roku Ultra, which was the wrong product.
+        path = self._archive(tmp_path, "RokuUltraGreatRoom")
+        assert self._dev_id(path) is None
+
+    def test_a_tail_belonging_to_another_client_is_refused(self, tmp_path):
+        # Proves the name was generated for *this* client rather than coined by
+        # someone who happened to end it with something MAC-shaped.
+        path = self._archive(tmp_path, "Govee Lyra 99:99")
+        assert self._dev_id(path) is None
+
+    def test_an_ambiguous_product_name_is_refused(self, tmp_path):
+        path = self._archive(tmp_path, "Twinned Thing 00:11")
+        assert self._dev_id(path) is None
+
+    def test_without_a_cached_database_nothing_is_resolved(self, tmp_path):
+        path = self._archive(tmp_path, "Govee Lyra 00:11")
+        snapshot = load_support_file(path)
+        clients = {c["mac"]: c for c in snapshot.get("client_active")}
+        assert "dev_id" not in clients[WIFI_CLIENT]
+        assert "fingerprint" not in snapshot.payloads
+
+    def test_the_name_beats_a_confident_dpi_guess(self, tmp_path):
+        members = _default_members()
+        topology = _topology()
+        for vertex in topology["default"]["vertices"]:
+            if vertex["mac"] == WIFI_CLIENT:
+                vertex["name"] = "Govee Lyra 00:11"
+        members["unifi/topology.json"] = json.dumps(topology).encode()
+        members["system/network/dpi-util-fprint-stats"] = (
+            "Response:\n"
+            + json.dumps(
+                {"hosts": [{"mac": WIFI_CLIENT, "ml": {"deviceNameID": 4207, "confidence": 99}}]}
+            )
+        ).encode()
+        path = tmp_path / "name-wins.tgz"
+        _write_archive(path, members)
+        # The console's name is the answer it settled on; DPI is a live guess.
+        assert self._dev_id(path) == 5282
 
 
 class TestProtect:

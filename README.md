@@ -207,11 +207,17 @@ read both ways, the infrastructure and the wireless client list came out
 identical, and VLAN names, subnets, switch port numbers, SSIDs, client addresses,
 the ISP name and Protect camera artwork all survive.
 
-The one real loss is **client product artwork**. The controller keeps a settled
-fingerprint for each client; a support file does not carry it. The gateway's DPI
-engine does record its own guess, which this tool uses where the gateway is
-confident, but that covers a minority of clients. The rest fall back to glyphs.
-UniFi hardware appearing as a client is unaffected and still draws properly.
+**Client artwork is partial.** A support file does not store the fingerprint id
+that client artwork is matched on, but it can often be recovered: when you have
+not renamed a client yourself, the console names it after the product it
+identified, and that name is enough to look the product back up. Clients you
+have named, and clients the console never identified, fall back to glyphs. UniFi
+hardware appearing as a client is unaffected and still draws properly.
+
+This lookup needs Ubiquiti's client fingerprint database, which is not in the
+archive either. It is cached automatically the first time you run a live `fetch`
+against any controller of your own. If you have never done that, everything
+still renders, with glyphs for all clients.
 
 Two smaller caveats:
 

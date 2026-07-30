@@ -21,10 +21,15 @@ stores them differently from the endpoints they stand in for:
   to their edges, with addresses recovered from the gateway's DHCP leases and
   neighbour table.
 
-What genuinely is not in the archive is the client fingerprint (`dev_id`), so
-clients fall back to the glyph renderer rather than showing product artwork.
-Devices are unaffected: `devices.json` carries `sysid`, which is the artwork
-join key.
+Client fingerprints (`dev_id`) are not stored anywhere in the archive, but they
+are recoverable for un-aliased clients, because the console names those
+`"<product name> <last two MAC octets>"` and that product name is the catalogue
+entry it resolved to. See `_dev_id_from_name`. That needs the fingerprint
+database, which the archive also lacks, so it is supplied from the asset cache
+of a previous live fetch. Without one, clients simply draw as glyphs.
+
+Devices are unaffected either way: `devices.json` carries `sysid`, which is the
+artwork join key for hardware.
 
 The archive is large (150 MiB and several thousand entries is typical) and full
 of logs that are none of our business, so it is read as a stream and only the
@@ -36,6 +41,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+import re
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -43,6 +49,9 @@ from typing import Any
 from .client import Snapshot
 
 log = logging.getLogger(__name__)
+
+# The console names an un-aliased client "<product name> <last two MAC octets>".
+_GENERATED_NAME = re.compile(r"^(?P<product>.+?)\s+(?P<tail>[0-9a-f]{2}:[0-9a-f]{2})$", re.I)
 
 # Members we read, keyed by a short internal name. Matched against the tail of
 # each archive path, because everything sits under a `support-<id>/` directory
@@ -286,6 +295,59 @@ def _parse_neighbours(raw: bytes | None) -> dict[str, str]:
     return neighbours
 
 
+def _fingerprint_index(database: Any) -> dict[str, int]:
+    """Normalized product name to `dev_id`, for names that identify exactly one.
+
+    A name shared by two catalogue entries is dropped rather than guessed at,
+    the same rule `AssetStore.sysid_for_name()` applies to hardware.
+    """
+    dev_ids = database.get("dev_ids") if isinstance(database, dict) else None
+    if not isinstance(dev_ids, dict):
+        return {}
+    seen: dict[str, set[int]] = {}
+    for raw_id, entry in dev_ids.items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            dev_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        key = _normalize_product(entry.get("name"))
+        if key:
+            seen.setdefault(key, set()).add(dev_id)
+    return {name: next(iter(ids)) for name, ids in seen.items() if len(ids) == 1}
+
+
+def _normalize_product(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _dev_id_from_name(name: str, mac: str, index: dict[str, int]) -> int | None:
+    """Recover the fingerprint the controller assigned, from the client's name.
+
+    When a client has no user-assigned alias, the console names it
+    `"<product name> <last two MAC octets>"`, and that product name is the
+    fingerprint database entry it resolved to. So the name is the fingerprint,
+    written down. A support file keeps the name, which is how client artwork
+    survives a fetch that has no `dev_id` anywhere in it.
+
+    The rule is deliberately strict, because the alternative is inventing a
+    product match. The trailing octets must genuinely be this client's, which
+    is what proves the console generated the name rather than a person; and the
+    remaining text must equal exactly one catalogue entry. On the network this
+    was developed against it resolved 12 clients with no wrong answers, while
+    correctly refusing a human-named "RokuUltraGreatRoom" that a looser
+    substring rule mapped to the wrong Roku.
+    """
+    match = _GENERATED_NAME.match(name)
+    if not match:
+        return None
+    tail = match.group("tail").lower()
+    if not mac.endswith(tail):
+        return None
+    return index.get(_normalize_product(match.group("product")))
+
+
 def _dpi_hosts(raw: bytes | None) -> dict[str, dict[str, Any]]:
     """MAC to {ip, dev_id} from the gateway's DPI fingerprint stats.
 
@@ -353,6 +415,7 @@ def _client_active(
     neighbours: dict[str, str],
     dpi: dict[str, dict[str, Any]],
     guest_networks: set[str],
+    fingerprint_index: dict[str, int],
 ) -> list[dict[str, Any]]:
     """Rebuild `stat/sta` records from topology vertices and their edges.
 
@@ -399,7 +462,13 @@ def _client_active(
             "network_id": network_id,
             "is_guest": network_id in guest_networks,
         }
-        if seen.get("dev_id") is not None:
+        # The console's own name is the better fingerprint where it exists,
+        # because it is the answer the controller settled on rather than the
+        # gateway's live guess.
+        named = _dev_id_from_name(str(vertex.get("name") or ""), mac, fingerprint_index)
+        if named is not None:
+            record["dev_id"] = named
+        elif seen.get("dev_id") is not None:
             record["dev_id"] = seen["dev_id"]
         if wired:
             record["sw_mac"] = edge.get("uplinkMac")
@@ -441,8 +510,13 @@ def _health(infrastructure: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def load_support_file(path: Path, site: str | None = None) -> Snapshot:
+def load_support_file(path: Path, site: str | None = None, fingerprint_db: Any = None) -> Snapshot:
     """Read *path* and return a Snapshot equivalent to a live fetch.
+
+    *fingerprint_db* is the controller's client fingerprint database, which a
+    support file does not contain. Supplying it, from the asset cache of any
+    previous live fetch, is what lets client artwork resolve; without it clients
+    still draw, as glyphs.
 
     Raises `SupportFileError` if the archive is unreadable or does not carry
     the device and topology data a map needs.
@@ -461,12 +535,14 @@ def load_support_file(path: Path, site: str | None = None) -> Snapshot:
 
     networks = _networkconf(devices)
     guest_networks = {n["_id"] for n in networks if n.get("is_guest")}
+    index = _fingerprint_index(fingerprint_db)
     clients = _client_active(
         topology,
         _parse_leases(members.get("leases")),
         _parse_neighbours(members.get("neighbours")),
         _dpi_hosts(members.get("dpi")),
         guest_networks,
+        index,
     )
 
     log.info(
@@ -486,13 +562,18 @@ def load_support_file(path: Path, site: str | None = None) -> Snapshot:
             len(clients),
         )
     fingerprinted = sum(1 for c in clients if c.get("dev_id") is not None)
-    log.info(
-        "  %d of %d clients carry a confident enough fingerprint for product "
-        "artwork; the rest fall back to glyphs. UniFi hardware appearing as a "
-        "client is unaffected.",
-        fingerprinted,
-        len(clients),
-    )
+    if index:
+        log.info(
+            "  %d of %d clients resolved a fingerprint for product artwork; the "
+            "rest fall back to glyphs.",
+            fingerprinted,
+            len(clients),
+        )
+    else:
+        log.info(
+            "  No cached client fingerprint database, so clients will draw as "
+            "glyphs. Run a live `fetch` against any controller once to cache it."
+        )
 
     payloads: dict[str, Any] = {
         "device": devices,
@@ -501,6 +582,10 @@ def load_support_file(path: Path, site: str | None = None) -> Snapshot:
         "health": _health(infrastructure),
         "topology": topology,
     }
+    # Carried into the snapshot so the resolved ids also yield product names and
+    # device types in labels, exactly as they would from a live fetch.
+    if isinstance(fingerprint_db, dict) and fingerprint_db.get("dev_ids"):
+        payloads["fingerprint"] = fingerprint_db
     # Absent unless Protect is installed, and the map is fine without it.
     cameras = _load_json(members, "protect_cameras")
     if isinstance(cameras, list):
