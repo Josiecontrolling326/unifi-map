@@ -9,8 +9,15 @@ from __future__ import annotations
 import json
 
 import pytest
+import requests
 
-from unifi_map.assets import AssetError, AssetStore, IconAsset, read_icon_font_dir
+from unifi_map.assets import (
+    AssetError,
+    AssetStore,
+    IconAsset,
+    describe_network_error,
+    read_icon_font_dir,
+)
 from unifi_map.svg_post import inline_svg_images
 
 CATALOG = {
@@ -456,3 +463,86 @@ class TestInternetCloud:
         # Light and dark themes must not share one cached image.
         store = AssetStore(cache_dir=tmp_path / "cache")
         assert store.internet_icon("#5A626E").path != store.internet_icon("#AAB2BF").path
+
+
+class TestNetworkFailure:
+    """What happens when the CDN is unreachable.
+
+    Two things matter: the run must still finish with a usable diagram, and it
+    must not spend an hour discovering that the network is down.
+    """
+
+    def _store(self, tmp_path):
+        return AssetStore(cache_dir=tmp_path / "cache")
+
+    def _break(self, monkeypatch, exc):
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            raise exc
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", fake_get)
+        return calls
+
+    def test_one_failure_stops_the_whole_run_trying(self, tmp_path, monkeypatch):
+        # Without this, a 48-client map issues 117 requests and waits out a
+        # separate timeout on every one of them.
+        calls = self._break(monkeypatch, requests.ConnectionError("boom"))
+        store = self._store(tmp_path)
+        store.catalog()
+        for dev_id in range(20):
+            store.client_icon(dev_id)
+        store.isp_logo(7018)
+        assert len(calls) == 1, f"kept trying after the first failure: {len(calls)} requests"
+
+    def test_it_says_what_went_wrong_in_one_short_line(self, tmp_path, monkeypatch, caplog):
+        self._break(
+            monkeypatch,
+            requests.ConnectionError(
+                "HTTPSConnectionPool(host='static.ui.com', port=443): Max retries exceeded "
+                "with url: /x (Caused by NewConnectionError('<urllib3.connection."
+                "HTTPSConnection object at 0x7f3a1c0d4e50>: Failed to establish a new "
+                "connection: [Errno -3] Temporary failure in name resolution'))"
+            ),
+        )
+        with caplog.at_level("WARNING"):
+            self._store(tmp_path).catalog()
+        message = caplog.text
+        assert "the name could not be resolved" in message
+        # The raw exception is a three-layer nested repr with an object address.
+        assert "urllib3" not in message
+        assert "0x7f3a" not in message
+
+    def test_a_404_does_not_trip_the_breaker(self, tmp_path, monkeypatch):
+        # One missing asset says nothing about the next. Only transport
+        # failures mean the CDN is unreachable.
+        calls = []
+
+        class Missing:
+            status_code = 404
+            content = b""
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return Missing()
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", fake_get)
+        store = self._store(tmp_path)
+        store.client_icon(1)
+        store.client_icon(2)
+        assert len(calls) > 2, "a 404 should not stop later lookups"
+
+    @pytest.mark.parametrize(
+        ("exc", "expected"),
+        [
+            (requests.exceptions.ConnectTimeout(), "timed out connecting"),
+            (requests.exceptions.ReadTimeout(), "timed out waiting for a reply"),
+            (requests.exceptions.SSLError(), "TLS verification failed"),
+            (requests.ConnectionError("Connection refused"), "the connection was refused"),
+            (requests.ConnectionError("No route to host"), "there is no route to that host"),
+            (requests.ConnectionError("something else entirely"), "the connection failed"),
+        ],
+    )
+    def test_each_common_failure_gets_plain_words(self, exc, expected):
+        assert describe_network_error(exc) == expected

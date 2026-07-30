@@ -143,6 +143,44 @@ class AssetError(RuntimeError):
     """Raised only for unrecoverable local problems, never for network failures."""
 
 
+def describe_network_error(exc: BaseException) -> str:
+    """A short, plain explanation of a failed request.
+
+    `requests` wraps `urllib3` which wraps the underlying socket error, so
+    `str(exc)` is a three-layer nested repr, complete with an object address,
+    that runs well past a terminal width. It buries the one fact the reader
+    needs, which is which of a handful of ordinary things went wrong.
+
+    Matching partly on message text is unavoidable because urllib3 does not
+    expose these distinctly, but this only ever produces a message, and an
+    unrecognised error still yields something short.
+    """
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "TLS verification failed"
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return "timed out connecting"
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return "timed out waiting for a reply"
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "timed out"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        text = str(exc).lower()
+        if "nameresolution" in text or "name or service not known" in text:
+            return "the name could not be resolved"
+        if "nodename nor servname" in text or "temporary failure in name resolution" in text:
+            return "the name could not be resolved"
+        if "refused" in text:
+            return "the connection was refused"
+        if "no route to host" in text:
+            return "there is no route to that host"
+        if "network is unreachable" in text:
+            return "the network is unreachable"
+        return "the connection failed"
+    if isinstance(exc, ValueError):
+        return "the reply was not valid JSON"
+    return type(exc).__name__
+
+
 def _normalise(text: Any) -> str:
     """Lowercase alphanumerics only, so "g3-flex" and "UVC G3 Flex" compare."""
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
@@ -190,6 +228,34 @@ class AssetStore:
     offline: bool = False
     timeout: float = 30.0
     _catalog: dict[int, dict[str, Any]] | None = None
+    # Tripped by the first transport-level failure. A map of any size asks for
+    # a lot of artwork, so without this a render against an unreachable CDN
+    # retries once per icon: 117 requests on a 48-client network, each waiting
+    # out its own timeout, which is the better part of an hour of apparent
+    # hanging. One failure is enough to know the rest will fail too.
+    _unreachable: bool = False
+
+    def _fetch(self, url: str, *, allow_redirects: bool = True) -> requests.Response | None:
+        """GET *url*, or None if artwork is unavailable for any reason.
+
+        Transport failures trip `_unreachable` so the rest of the run stops
+        trying. An HTTP status is *not* a transport failure: a 404 means this
+        one asset is missing, which says nothing about the next one.
+        """
+        if self.offline or self._unreachable:
+            return None
+        try:
+            return requests.get(url, timeout=self.timeout, allow_redirects=allow_redirects)
+        except requests.RequestException as exc:
+            self._unreachable = True
+            log.warning(
+                "Cannot reach Ubiquiti's asset CDN: %s. Continuing without "
+                "downloaded artwork; devices will draw as shapes. Re-run when "
+                "you have connectivity, or pass --offline to skip this "
+                "entirely.",
+                describe_network_error(exc),
+            )
+            return None
 
     @property
     def catalog_path(self) -> Path:
@@ -305,11 +371,9 @@ class AssetStore:
 
         for size in ISP_LOGO_SIZES:
             url = ISP_LOGO_URL.format(asn=asn, size=size)
-            try:
-                response = requests.get(url, timeout=self.timeout, allow_redirects=False)
-            except requests.RequestException as exc:
-                log.debug("ISP logo %s failed (%s).", url, exc)
-                continue
+            response = self._fetch(url, allow_redirects=False)
+            if response is None:
+                return None
             if response.status_code != 200 or not response.content:
                 continue
             self.icon_dir.mkdir(parents=True, exist_ok=True)
@@ -365,11 +429,9 @@ class AssetStore:
 
         for size in CLIENT_ICON_SIZES:
             url = CLIENT_ICON_URL.format(dev_id=dev_id, size=size)
-            try:
-                response = requests.get(url, timeout=self.timeout, allow_redirects=False)
-            except requests.RequestException as exc:
-                log.debug("Client artwork %s failed (%s).", url, exc)
-                continue
+            response = self._fetch(url, allow_redirects=False)
+            if response is None:
+                return None
             # A missing size 302s to ui.com rather than 404ing, so a redirect
             # means "not available", not "follow me".
             if response.status_code != 200 or not response.content:
@@ -423,12 +485,17 @@ class AssetStore:
             log.warning("Offline and no cached device catalog; icons disabled.")
             return None
 
+        response = self._fetch(CATALOG_URL)
+        if response is None:
+            return None
         try:
-            response = requests.get(CATALOG_URL, timeout=self.timeout)
             response.raise_for_status()
             payload = response.json()
         except (requests.RequestException, ValueError) as exc:
-            log.warning("Could not fetch the UniFi device catalog (%s); icons disabled.", exc)
+            log.warning(
+                "Could not read the UniFi device catalog: %s. Icons disabled.",
+                describe_network_error(exc),
+            )
             return None
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -521,12 +588,16 @@ class AssetStore:
             return None
 
         url = IMAGE_URL.format(id=entry.get("id"), variant=variant, hash=images[variant])
+        response = self._fetch(url)
+        if response is None:
+            return None
         try:
-            response = requests.get(url, timeout=self.timeout)
             response.raise_for_status()
             raw = response.content
         except requests.RequestException as exc:
-            log.warning("Could not fetch artwork for sysid %04x (%s).", sysid, exc)
+            log.warning(
+                "Could not fetch artwork for sysid %04x: %s.", sysid, describe_network_error(exc)
+            )
             return None
 
         self.icon_dir.mkdir(parents=True, exist_ok=True)

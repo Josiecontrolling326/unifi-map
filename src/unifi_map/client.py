@@ -21,7 +21,7 @@ from typing import Any
 import requests
 import urllib3
 
-from .assets import parse_glyph_codepoints
+from .assets import describe_network_error, parse_glyph_codepoints
 from .config import ExporterConfig
 
 log = logging.getLogger(__name__)
@@ -108,7 +108,11 @@ class UniFiClient:
         try:
             response = self.session.get(url, timeout=self.timeout)
         except requests.RequestException as exc:
-            raise UniFiError(f"Request to {url} failed: {exc}") from exc
+            raise UniFiError(
+                f"Could not reach {self.config.host}: {describe_network_error(exc)}. "
+                "Check UNIFI_HOST, that the console is up, and that this machine "
+                "can route to it."
+            ) from exc
         if response.status_code in (401, 403):
             raise UniFiError(
                 f"HTTP {response.status_code} from {url}. The API key is wrong, "
@@ -127,7 +131,11 @@ class UniFiClient:
         try:
             response = self.session.get(url, timeout=self.timeout)
         except requests.RequestException as exc:
-            raise UniFiError(f"Request to {url} failed: {exc}") from exc
+            raise UniFiError(
+                f"Could not reach {self.config.host}: {describe_network_error(exc)}. "
+                "Check UNIFI_HOST, that the console is up, and that this machine "
+                "can route to it."
+            ) from exc
         if not response.ok:
             raise UniFiError(f"HTTP {response.status_code} from {url}")
         try:
@@ -141,7 +149,11 @@ class UniFiClient:
         try:
             response = self.session.get(url, timeout=self.timeout)
         except requests.RequestException as exc:
-            raise UniFiError(f"Request to {url} failed: {exc}") from exc
+            raise UniFiError(
+                f"Could not reach {self.config.host}: {describe_network_error(exc)}. "
+                "Check UNIFI_HOST, that the console is up, and that this machine "
+                "can route to it."
+            ) from exc
         if response.status_code in (401, 403):
             raise UniFiError(
                 f"HTTP {response.status_code} from {url}. The API key is wrong, "
