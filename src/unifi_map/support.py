@@ -571,8 +571,9 @@ def load_support_file(path: Path, site: str | None = None, fingerprint_db: Any =
         )
     else:
         log.info(
-            "  No cached client fingerprint database, so clients will draw as "
-            "glyphs. Run a live `fetch` against any controller once to cache it."
+            "  No cached client fingerprint database, so clients draw without "
+            "product artwork. Run a live `fetch` against any controller once to "
+            "cache it. Device artwork is unaffected and needs no controller."
         )
 
     payloads: dict[str, Any] = {
