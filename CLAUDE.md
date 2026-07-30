@@ -244,15 +244,20 @@ headings, check what was in between.
 - **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
   and uplinks, separate from the client topology. `--no-clients` approximates it.
 
-- **Repository description on GitHub.** Not a file, it is a setting, which is why
-  it keeps getting forgotten. Keep it consistent with `pyproject.toml`:
-  "Export your UniFi network topology as zoomable SVG, PDF, or an editable
-  draw.io diagram, with real Ubiquiti device artwork."
-
 Done since this list was last accurate: overrides are applied rather than only
-parsed, CI exists, obfuscation exists, versioning started at 0.1.0, `SECURITY.md`
-and `CONTRIBUTING.md` and the issue and PR templates were written, and clients
-behind non-UniFi devices are placed from the controller's own graph.
+parsed, CI exists, obfuscation exists, `SECURITY.md` and `CONTRIBUTING.md` and
+the issue and PR templates were written, clients behind non-UniFi devices are
+placed from the controller's own graph, `--support-file` is implemented, and
+0.2.0 is released.
+
+**The GitHub repository description is set**, and matches `pyproject.toml`.
+Verified against the API rather than assumed, because it is a setting rather
+than a file and so cannot be seen from a checkout. Check it the same way before
+listing it as outstanding again:
+
+```bash
+curl -s https://api.github.com/repos/gitkodak/unifi-map | jq -r .description
+```
 
 ## `--support-file` is a second input, and loses almost nothing
 
