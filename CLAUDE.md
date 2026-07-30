@@ -223,6 +223,43 @@ Restored after being deleted by accident in 9b18a1a, where a section replacement
 spanned two headings and took this with it. If you replace a range between
 headings, check what was in between.
 
+- **Draw our own device icons instead of falling back to Graphviz shapes.**
+  `KIND_SHAPE` currently maps each role to a primitive: `doubleoctagon` for a
+  gateway, `box3d` for a switch, `trapezium` for an AP, `diamond` for unknown.
+  Readable, but plainly geometric. `_render_cloud()` proved the approach: Pillow
+  primitives, ours, so no network and no licensing question, and Pillow is
+  already a hard dependency so nothing new is needed.
+
+  Seven icons, `INTERNET` being done already: gateway, switch, AP, bridge, wired
+  client, wireless client, unknown.
+
+  **Decided: use them in `--icons builtin` *and* as the fallback inside
+  `--icons unifi` when a device is not in Ubiquiti's catalogue.** Today that case
+  drops to a bare shape, so this improves the default mode too. It is a small,
+  deliberate step away from "`unifi` shows exactly what the console
+  shows", taken because a drawn AP beats a trapezium either way.
+
+  What is known offline, all from the snapshot rather than any lookup:
+
+  - `Kind`, derived from the controller's `type` (`udm`/`usw`/`uap`).
+  - `model`, the raw code (`UDMPROMAX`, `U7PRO`, `USL8LP`). Enough to vary an
+    icon by port count or form factor if that ever seems worth it.
+  - `is_guest` and `wireless` for clients, which is exactly the four-way split
+    the console's own icon font encodes (`user-wired`, `user-wireless`,
+    `guest-wired`, `guest-wireless`). **Drawing those four would close the icon
+    font dead end recorded above**, and remove the only remaining reason a
+    support-file user needs a controller.
+
+  Three constraints, all learned the hard way already:
+
+  - **Give each kind its real aspect ratio.** `IconAsset.display_size()` honours
+    it; a wide short switch forced into a square cell letterboxes.
+  - **Silhouette must keep carrying the meaning.** The existing shapes exist so
+    the map survives greyscale and deuteran vision. Colour may not become the
+    only channel.
+  - **Cache per colour, like the cloud does**, or a dark icon lands on a dark
+    canvas.
+
 - **Infrastructure view.** A rack/cabling-style view of gateway, switches, APs
   and uplinks, separate from the client topology. `--no-clients` approximates it.
 
