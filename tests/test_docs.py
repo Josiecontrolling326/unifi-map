@@ -37,12 +37,15 @@ def test_every_internal_link_resolves_to_a_heading(path: Path):
     assert not broken, f"{path.name} links to headings that do not exist: {broken}"
 
 
-def test_the_summary_table_is_near_the_top():
+def test_the_feature_list_is_the_first_section():
     """It exists so nobody has to read the whole file to decide whether to try it.
 
-    Below the screenshots is fine; below the usage section is not.
+    Directly below the screenshots and above everything else, which is where it
+    was asked to be. Anything that pushes it further down defeats the point.
     """
     lines = (DOCS[0]).read_text(encoding="utf-8").splitlines()
-    index = next((i for i, line in enumerate(lines) if line.startswith("## At a glance")), None)
-    assert index is not None, "README lost its summary section"
-    assert index < 60, f"summary has drifted to line {index}; it should stay above the fold"
+    headings = [(i, line) for i, line in enumerate(lines) if line.startswith("## ")]
+    assert headings, "README has no sections at all"
+    index, first = headings[0]
+    assert first == "## Features", f"first section is {first!r}, not the feature list"
+    assert index < 60, f"feature list has drifted to line {index}; it should stay above the fold"

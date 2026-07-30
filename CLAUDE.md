@@ -260,6 +260,18 @@ headings, check what was in between.
   - **Cache per colour, like the cloud does**, or a dark icon lands on a dark
     canvas.
 
+- **Say something about assets that 404.** A missing icon is currently silent at
+  the default log level: `client_icon()` and `isp_logo()` end in `log.debug`, and
+  the circuit breaker deliberately ignores an HTTP status because one missing
+  asset says nothing about the next. That is right for the breaker and wrong for
+  the operator, who cannot tell "no artwork exists for this device" from "the
+  lookup is broken".
+
+  `-v` already exists and does show these, but it turns on DEBUG for everything
+  and is far too noisy to be the answer. Better: a one-line summary at the end
+  of the artwork pass naming how many assets were genuinely absent, alongside
+  the counts already printed, and keep the per-asset detail behind `-v`.
+
 - **Infrastructure view.** The console has one, and it is a different diagram
   rather than the client map with clients removed, which is all `--no-clients`
   gives today. Described from a screenshot of the real thing, 2026-07-30.

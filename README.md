@@ -30,18 +30,36 @@ aspect ratio sane, port numbers on the links, and a title block and legend. On a
 busy network this is usually the one worth handing to somebody else. Run
 `make demo` to reproduce both, then point it at your own controller.*
 
-## At a glance
+## Features
 
-| | |
-| --- | --- |
-| **Input** | Your controller, with an API key. Or a [support file](#mapping-from-a-support-file), with no credentials and no network at all. |
-| **Output** | [SVG, PDF, PNG, editable `.drawio`, Graphviz `.dot`](#output). |
-| **Scope** | Every client, not just infrastructure. Optionally [one diagram per VLAN](#usage). |
-| **Artwork** | Real Ubiquiti product renders for hardware *and* clients, plus your ISP's logo. [Fetched at runtime, never vendored](#artwork-licensing-and-attribution). |
-| **Layouts** | [`unifi`](#how-close-is---layout-unifi) approximates the console view; `sane` is the readable one. Light and dark themes. |
-| **Sharing** | [`--obfuscate`](#sharing-a-map---obfuscate) replaces names, addresses, MACs, SSIDs, VLAN names and your ISP, keeping the shape of the network. |
-| **Corrections** | [Overrides](#manual-overrides) for links the controller cannot see, renames, hidden nodes and your own icons. |
-| **Access** | Read-only. `session.get` is the only HTTP verb in the source. |
+- **Maps every client, not just infrastructure.** Gateways, switches, APs and
+  everything hanging off them, including clients behind a non-UniFi device.
+- **Real Ubiquiti product artwork**, for your hardware *and* your clients, plus
+  your ISP's brand mark on the Internet node. [Fetched at runtime and cached,
+  never shipped in this repo](#artwork-licensing-and-attribution).
+- **Vector output that stays readable.** [SVG and PDF](#output) zoom to any
+  size with crisp labels, PNG when something insists, and Graphviz `.dot` to
+  tweak by hand.
+- **Editable draw.io files**, with real shapes already positioned by Graphviz,
+  so you can rearrange the map rather than just look at it.
+- **Two layouts.** [`unifi`](#how-close-is---layout-unifi) approximates the
+  console's own view; `sane` is top down and actually readable on a busy
+  network. Light and dark themes, colourblind-safe palette.
+- **Works with no credentials at all**, from a
+  [support file](#mapping-from-a-support-file) instead of a controller. Useful
+  if you would rather not hand a script an API key, or are mapping a network
+  you cannot reach.
+- **Safe to publish.** [`--obfuscate`](#sharing-a-map---obfuscate) replaces
+  hostnames, addresses, MACs, SSIDs, VLAN names and your ISP, keeping the shape
+  of the network intact.
+- **One diagram per VLAN**, optionally, each keeping the full gateway and
+  switch skeleton so they read as slices of one map.
+- **Hides decommissioned hardware** by default, which the console itself offers
+  no way to do.
+- **[Manual overrides](#manual-overrides)** for links the controller cannot
+  see, devices running inside other devices, renames, hidden nodes and your own
+  artwork.
+- **Read-only, always.** `session.get` is the only HTTP verb in the source.
 
 Quickest look, no credentials and no controller:
 
@@ -56,14 +74,9 @@ cp .env.example .env    # host + API key
 unifi-map all
 ```
 
-Two things carry risk and are worth reading before you use them:
-
-- **An API key is broader than this tool needs.** UniFi has no read-only scope,
-  so the key inherits your account's permissions. What was tried, and what this
-  actually requests, is in [`UNIFI_API_KEY`](#unifi_api_key) and `SECURITY.md`.
-- **A support file is highly sensitive**, more so than most people expect. If
-  you plan to use or share one, read
-  [Mapping from a support file](#mapping-from-a-support-file) first.
+Two things carry risk and are worth reading first: an API key is
+[broader than this tool needs](#unifi_api_key), and a support file is
+[highly sensitive](#mapping-from-a-support-file).
 
 ## How this was built
 
@@ -77,6 +90,11 @@ them. It has not been audited line by line by a human, and I'm not going to
 pretend otherwise. It only ever reads from your controller (there is no code
 path here that changes anything on it), but it does want admin credentials, so
 read `client.py` if that matters to you. It's short.
+
+[`HUMAN_INPUT.md`](HUMAN_INPUT.md) records what "my direction" actually amounted
+to: the decisions, constraints and corrections I supplied, including the ones
+where I turned out to be wrong. A disclaimer like this one is worth more when it
+can be checked.
 
 Use it or don't, your call.
 
