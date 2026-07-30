@@ -431,6 +431,29 @@ Ubiquiti's CDN for product images. Pass `--offline` to forbid that, or
 warm, `render` makes no network calls in practice, but that is a consequence of
 the cache being populated rather than a guarantee of the command.
 
+### When something looks wrong: `-v`
+
+```bash
+unifi-map -v render
+```
+
+Verbose mode logs every artwork lookup, including the ones that came back
+empty. That is usually enough to tell the two common cases apart:
+
+- **Ubiquiti has no artwork for that device.** The lookup ran and the asset
+  genuinely is not published. Nothing to fix here; the shape or glyph fallback
+  is correct.
+- **The match went wrong.** The device resolved to the wrong product, or to
+  nothing when it should have resolved. [Overrides](#manual-overrides) can
+  correct it, and it is worth reporting.
+
+Missing artwork is deliberately quiet at the normal log level, because a
+handful of unrecognised devices is ordinary on any network and a warning per
+device would drown the output. `-v` is where the detail lives.
+
+It also raises the detail on everything else, so it is the first thing to
+attach to a bug report. Redact addresses and hostnames before pasting.
+
 ### Style options
 
 ```bash

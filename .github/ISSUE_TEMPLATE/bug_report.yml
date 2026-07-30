@@ -61,7 +61,9 @@ body:
     id: output
     attributes:
       label: Output or error
-      description: Run with -v for more detail. Redact addresses and hostnames.
+      description: >
+        Run with `-v`, which logs every artwork lookup and every asset that
+        came back empty. Redact addresses and hostnames.
       render: shell
 
   - type: checkboxes

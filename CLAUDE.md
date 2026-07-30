@@ -105,6 +105,13 @@ controller JSON.
   the mark for the cloud; clearing `Node.asn` alone is not enough.
 - Artwork must degrade: no network, no Pillow, or unknown hardware all fall back
   to the shape renderer rather than failing the run.
+- **An asset that 404s stays quiet at the default log level, on purpose.** A
+  handful of unrecognised devices is ordinary on any network, and a warning per
+  device would drown the output that matters. The detail lives behind `-v`,
+  which logs every lookup including the empty ones; that is documented in the
+  README and asked for by both issue templates. This was considered as a
+  summary count at the end of the artwork pass and deliberately not built:
+  documenting the existing flag was enough.
 
 ## Rendering constraints
 
@@ -259,18 +266,6 @@ headings, check what was in between.
     only channel.
   - **Cache per colour, like the cloud does**, or a dark icon lands on a dark
     canvas.
-
-- **Say something about assets that 404.** A missing icon is currently silent at
-  the default log level: `client_icon()` and `isp_logo()` end in `log.debug`, and
-  the circuit breaker deliberately ignores an HTTP status because one missing
-  asset says nothing about the next. That is right for the breaker and wrong for
-  the operator, who cannot tell "no artwork exists for this device" from "the
-  lookup is broken".
-
-  `-v` already exists and does show these, but it turns on DEBUG for everything
-  and is far too noisy to be the answer. Better: a one-line summary at the end
-  of the artwork pass naming how many assets were genuinely absent, alongside
-  the counts already printed, and keep the per-asset detail behind `-v`.
 
 - **Infrastructure view.** The console has one, and it is a different diagram
   rather than the client map with clients removed, which is all `--no-clients`

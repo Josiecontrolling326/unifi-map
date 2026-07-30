@@ -63,3 +63,14 @@ body:
     attributes:
       label: How does the UniFi UI itself draw it
       description: If the console gets it right and this tool does not, that is a real bug.
+
+  - type: textarea
+    id: verbose
+    attributes:
+      label: Output of the same render with -v
+      description: >
+        Run the render again with `-v`. It logs every artwork lookup, including
+        which ones came back empty, which usually says immediately whether the
+        asset does not exist or the match went wrong. Redact addresses and
+        hostnames before pasting.
+      render: shell
