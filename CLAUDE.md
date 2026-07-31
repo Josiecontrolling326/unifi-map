@@ -43,6 +43,14 @@ controller JSON.
    **`support.py`** is the alternative source: it reads the same `Snapshot` out
    of a support file archive, with no credentials and no network. Keep the two
    interchangeable, so anything added to one is considered for the other.
+   `_Session` overrides `rebuild_auth` so the `X-API-KEY` header is dropped on a
+   redirect that changes host, which is what `requests` already does for
+   `Authorization` and does for nothing else. Redirects stay enabled on purpose:
+   no endpoint used here redirects today, but refusing them outright would break
+   anyone fronting their controller with a proxy that normalises a path or a
+   trailing slash. `UNIFI_VERIFY_TLS=false` is documented as ordinary for a bare
+   IP, so without the strip, anyone in the path could redirect the tool and be
+   handed a working admin key.
 3. **`model.py`** normalizes into `Topology`. All schema quirks land here.
 4. **`assets.py`** is the only module that fetches artwork. Cached under
    `--asset-cache` (default `cache/assets`), deliberately separate from the
@@ -234,22 +242,6 @@ headings, check what was in between.
 
 These are bugs rather than missing features, and the first two lose or leak
 something. Do these before the feature work below.
-
-- **The API key can follow a redirect to another host.** `client.py` sets
-  `X-API-KEY` on the session and calls `session.get` with redirects enabled.
-  `requests.Session.rebuild_auth` strips only `Authorization` when the host
-  changes; a custom header rides along untouched, which was confirmed by
-  reading it rather than assumed.
-
-  What makes this worth fixing rather than noting: the README documents
-  `UNIFI_VERIFY_TLS=false` as the ordinary thing to do for a bare IP. With
-  verification off, redirects followed, and the header not stripped, anyone in
-  the path can redirect the tool to a host of their choosing and be handed the
-  key. Our own documentation is what sharpens it.
-
-  Fix is small: `allow_redirects=False` on the controller requests, or refuse a
-  redirect whose host differs from `config.host`. A UniFi console has no
-  legitimate reason to redirect these paths off-host.
 
 - **`render` silently destroys hand-edited output.** Put a file at
   `out/network-map.drawio`, run `render`, and it is gone with no warning.

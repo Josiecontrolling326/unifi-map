@@ -58,6 +58,40 @@ class UniFiError(RuntimeError):
     """Raised for authentication and transport failures."""
 
 
+class _Session(requests.Session):
+    """A session that will not carry the API key to a different host.
+
+    `requests` already does this for `Authorization`: on a redirect that
+    changes host it deletes the header, so a credential cannot be handed to
+    somewhere the caller never chose. It does not do it for anything else, and
+    ours is the custom header `X-API-KEY`, which would ride along untouched.
+
+    That matters more here than it looks. `UNIFI_VERIFY_TLS=false` is
+    documented as the ordinary setting for a bare IP, because consoles serve a
+    self-signed certificate there. With verification off, anyone in the path can
+    answer with a redirect to a host of their choosing, and without this the
+    next request hands them a working admin key.
+
+    Redirects themselves are left enabled. Refusing them outright would work
+    against a console today, since none of the endpoints used redirect, but it
+    would break anyone who fronts their controller with a reverse proxy that
+    normalises a path or a trailing slash. Stripping keeps those working and
+    only disarms the case that is actually dangerous.
+    """
+
+    def rebuild_auth(self, prepared_request: Any, response: Any) -> None:
+        super().rebuild_auth(prepared_request, response)
+        if not self.should_strip_auth(response.request.url, prepared_request.url):
+            return
+        if prepared_request.headers.pop("X-API-KEY", None) is not None:
+            log.warning(
+                "Redirected from %s to a different host; the API key was not "
+                "sent on. If this is a legitimate proxy, point UNIFI_HOST at "
+                "the address it answers on rather than following a redirect.",
+                response.request.url,
+            )
+
+
 @dataclass
 class Snapshot:
     """Raw controller responses, as fetched or as loaded from cache."""
@@ -93,7 +127,7 @@ class UniFiClient:
     def __init__(self, config: ExporterConfig, timeout: float = 30.0) -> None:
         self.config = config
         self.timeout = timeout
-        self.session = requests.Session()
+        self.session = _Session()
         self.session.verify = config.verify_tls
         # Keys need no session, so there is nothing to log in or out of: the
         # header is set once and every request carries it.

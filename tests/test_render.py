@@ -302,3 +302,42 @@ class TestLegendHonesty:
         # With artwork the VLAN colour is the label text, not a border.
         assert "Client network (label colour)" in self._legend_text(topo, style, icons)
         assert "Client network (label colour)" not in self._legend_text(topo, SANE)
+
+
+class TestApiKeyIsNotCarriedAcrossHosts:
+    """`requests` strips `Authorization` on a cross-host redirect and nothing else.
+
+    Ours is a custom header, so without help it would be handed to whatever host
+    a redirect names. That is not hypothetical: the README documents
+    `UNIFI_VERIFY_TLS=false` for bare IPs, and with verification off anyone in
+    the path can supply the redirect.
+    """
+
+    def _prepared(self, url):
+        import requests
+
+        request = requests.Request("GET", url, headers={"X-API-KEY": "secret"})
+        return request.prepare()
+
+    def _redirect(self, from_url, to_url):
+        import requests
+
+        from unifi_map.client import _Session
+
+        session = _Session()
+        original = self._prepared(from_url)
+        response = requests.Response()
+        response.request = original
+        following = self._prepared(to_url)
+        following.headers["X-API-KEY"] = "secret"
+        session.rebuild_auth(following, response)
+        return following.headers
+
+    def test_the_key_is_dropped_when_the_host_changes(self):
+        headers = self._redirect("https://console.example.com/a", "https://elsewhere.example.net/a")
+        assert "X-API-KEY" not in headers
+
+    def test_the_key_survives_a_redirect_on_the_same_host(self):
+        # A reverse proxy normalising a path or trailing slash must keep working.
+        headers = self._redirect("https://console.example.com/a", "https://console.example.com/a/")
+        assert headers["X-API-KEY"] == "secret"

@@ -31,6 +31,15 @@ Refactors, docs and tests alone do not need a release at all.
 
 ## Unreleased
 
+### Fixed
+
+- The API key is no longer sent on if a redirect points at a different host.
+  `requests` does this for `Authorization` and nothing else, and ours is a
+  custom header. It mattered because `UNIFI_VERIFY_TLS=false` is documented as
+  the ordinary setting for a bare IP, so with verification off anyone in the
+  path could have redirected the tool and collected a working admin key.
+  Redirects themselves still work, including on a reverse proxy.
+
 ### Added
 
 - The Internet node now shows the upstream provider's brand mark, matched on the
