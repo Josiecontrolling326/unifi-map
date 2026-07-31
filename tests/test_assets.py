@@ -7,6 +7,7 @@ so AssetStore reads it from disk.
 from __future__ import annotations
 
 import json
+from typing import ClassVar
 
 import pytest
 import requests
@@ -522,6 +523,7 @@ class TestNetworkFailure:
         class Missing:
             status_code = 404
             content = b""
+            headers: ClassVar[dict[str, str]] = {}
 
         def fake_get(url, **kwargs):
             calls.append(url)
@@ -546,3 +548,38 @@ class TestNetworkFailure:
     )
     def test_each_common_failure_gets_plain_words(self, exc, expected):
         assert describe_network_error(exc) == expected
+
+
+class TestResourceLimits:
+    """Artwork arrives from a CDN or from a user-supplied override path."""
+
+    def test_an_oversized_response_is_not_treated_as_artwork(self, tmp_path, monkeypatch):
+        from unifi_map.assets import MAX_ASSET_BYTES
+
+        class Huge:
+            status_code = 200
+            content = b"x" * 16
+            headers: ClassVar[dict[str, str]] = {"Content-Length": str(MAX_ASSET_BYTES + 1)}
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", lambda *a, **k: Huge())
+        # Refused on the declared length, without buffering the body.
+        assert AssetStore(cache_dir=tmp_path / "c").client_icon(1) is None
+
+    def test_a_lying_content_length_is_still_caught(self, tmp_path, monkeypatch):
+        from unifi_map.assets import MAX_ASSET_BYTES
+
+        class Liar:
+            status_code = 200
+            content = b"x" * (MAX_ASSET_BYTES + 1)
+            headers: ClassVar[dict[str, str]] = {"Content-Length": "10"}
+
+        monkeypatch.setattr("unifi_map.assets.requests.get", lambda *a, **k: Liar())
+        assert AssetStore(cache_dir=tmp_path / "c").client_icon(1) is None
+
+    def test_the_pillow_bomb_threshold_is_tightened(self):
+        from PIL import Image
+
+        from unifi_map.assets import MAX_IMAGE_PIXELS, _pillow_image
+
+        _pillow_image()
+        assert Image.MAX_IMAGE_PIXELS == MAX_IMAGE_PIXELS

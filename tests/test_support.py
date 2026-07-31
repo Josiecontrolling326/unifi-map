@@ -611,3 +611,48 @@ class TestMultipleSites:
         path = self._two_site_archive(tmp_path)
         snapshot = load_support_file(path, site="branch")
         assert len(snapshot.get("device")) == 1
+
+
+class TestArchiveMemberMatching:
+    """Which member is accepted as which file.
+
+    Matching a trailing path fragment is not enough. The premise of this mode is
+    that somebody else can send you the archive, so anything they can do to the
+    paths inside it is inside the threat model.
+    """
+
+    def test_a_decoy_at_a_deeper_path_does_not_win(self, tmp_path):
+        members = _default_members()
+        real = _devices()
+        fake = _devices()
+        fake[0]["default"][0]["name"] = "ATTACKER-CONTROLLED"
+        members["unifi/devices.json"] = json.dumps(real).encode()
+
+        path = tmp_path / "spoofed.tgz"
+        with tarfile.open(path, "w:gz") as archive:
+            # Written first, so it is seen first when streaming.
+            decoy = json.dumps(fake).encode()
+            info = tarfile.TarInfo(f"{ROOT}/evil/unifi/devices.json")
+            info.size = len(decoy)
+            archive.addfile(info, io.BytesIO(decoy))
+            for name, payload in members.items():
+                info = tarfile.TarInfo(f"{ROOT}/{name}")
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
+
+        names = {d["name"] for d in load_support_file(path).get("device")}
+        assert "ATTACKER-CONTROLLED" not in names
+        assert "gateway" in names
+
+    def test_a_member_at_the_archive_root_is_not_matched(self, tmp_path):
+        # Real archives always carry the `support-<id>/` prefix. Anything
+        # without it is not the file we are looking for.
+        path = tmp_path / "rootlevel.tgz"
+        with tarfile.open(path, "w:gz") as archive:
+            body = json.dumps(_devices()).encode()
+            for name in ("unifi/devices.json", "a/b/unifi/devices.json"):
+                info = tarfile.TarInfo(name)
+                info.size = len(body)
+                archive.addfile(info, io.BytesIO(body))
+        with pytest.raises(SupportFileError, match=r"devices\.json"):
+            load_support_file(path)

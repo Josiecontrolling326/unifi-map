@@ -138,6 +138,16 @@ VARIANTS = ("topology", "nopadding", "default")
 # low hundreds of KB instead of tens of MB.
 ICON_PX = 256
 
+# An icon is a few hundred KB. Anything past this is not artwork, whether it is
+# a hostile CDN response or a user pointing --icons at the wrong file.
+MAX_ASSET_BYTES = 16 * 1024 * 1024
+
+# Pillow's own decompression-bomb threshold is deliberately generous, because it
+# has to serve people processing real photographs. Ours only ever opens icons,
+# so a far tighter ceiling costs nothing and turns a memory-exhaustion image
+# into an ordinary error. 40 megapixels is roughly 600x the largest icon seen.
+MAX_IMAGE_PIXELS = 40_000_000
+
 
 class AssetError(RuntimeError):
     """Raised only for unrecoverable local problems, never for network failures."""
@@ -245,7 +255,15 @@ class AssetStore:
         if self.offline or self._unreachable:
             return None
         try:
-            return requests.get(url, timeout=self.timeout, allow_redirects=allow_redirects)
+            response = requests.get(url, timeout=self.timeout, allow_redirects=allow_redirects)
+            declared = response.headers.get("Content-Length")
+            if declared and declared.isdigit() and int(declared) > MAX_ASSET_BYTES:
+                log.warning("%s claims %s bytes; refusing to read it as artwork.", url, declared)
+                return None
+            if len(response.content) > MAX_ASSET_BYTES:
+                log.warning("%s is larger than %d bytes; not artwork.", url, MAX_ASSET_BYTES)
+                return None
+            return response
         except requests.RequestException as exc:
             self._unreachable = True
             log.warning(
@@ -627,6 +645,9 @@ def _pillow_image():
         from PIL import Image
     except ImportError as exc:  # pragma: no cover - depends on environment
         raise AssetError("Pillow is not installed; cannot process artwork.") from exc
+    # Applied on every use rather than once at import, since Pillow is imported
+    # lazily and a caller could have relaxed it.
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
     return Image
 
 

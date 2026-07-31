@@ -616,6 +616,17 @@ Do not use `git push -u` on `validate`. It repoints the branch's upstream, and a
 later bare `git push` then sends work meant for review straight past it. Name
 the remote explicitly every time.
 
+## Support files are attacker-supplied, and the parsing assumes it
+
+- **Member paths are anchored, not suffix-matched.** `_MEMBER_PATTERNS` requires
+  exactly one leading directory component and then the expected path. Matching
+  a trailing fragment instead lets a crafted archive add
+  `evil/unifi/devices.json`, which ends the same way, and win by appearing
+  earlier in the stream. Found by an external audit, reproduced, fixed, and
+  covered by a test that builds the malicious archive. Do not loosen it.
+- Non-regular members are skipped, nothing is extracted to disk, members and
+  the total are size-capped and tunable, and the entry count is capped.
+
 ## Data hygiene
 
 `cache/` and `out/` are gitignored; snapshots are written `0600`. A snapshot is a

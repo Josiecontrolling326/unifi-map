@@ -57,6 +57,15 @@ Refactors, docs and tests alone do not need a release at all.
 
 ### Fixed
 
+- A crafted support file can no longer decide what topology you see. Archive
+  members were matched on a trailing path fragment, so an added
+  `evil/unifi/devices.json` matched the same fragment as the real
+  `unifi/devices.json` and, placed earlier in the stream, won. Matching is now
+  anchored to exactly one leading directory component. Reproduced before the
+  fix and after it.
+- Artwork responses are size-capped, on the declared length and again on what
+  actually arrives, and Pillow's decompression-bomb threshold is tightened from
+  its default to something appropriate for icons.
 - An API key is no longer visible to Graphviz or any other child process. It is
   never written into the process environment, and the environment passed to
   child processes has the key variables removed in case one was exported. Both

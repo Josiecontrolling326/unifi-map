@@ -57,9 +57,15 @@ log = logging.getLogger(__name__)
 # The console names an un-aliased client "<product name> <last two MAC octets>".
 _GENERATED_NAME = re.compile(r"^(?P<product>.+?)\s+(?P<tail>[0-9a-f]{2}:[0-9a-f]{2})$", re.I)
 
-# Members we read, keyed by a short internal name. Matched against the tail of
-# each archive path, because everything sits under a `support-<id>/` directory
-# whose name varies per file.
+# Members we read, keyed by a short internal name. Anchored to exactly one
+# leading directory component, because everything sits under a `support-<id>/`
+# directory whose name varies per file.
+#
+# The anchoring is load-bearing rather than tidy. Matching on a trailing path
+# fragment instead lets a crafted archive add `evil/unifi/devices.json`, which
+# ends with the same fragment; put it earlier in the stream and it is taken as
+# the real file. Since the entire premise of this mode is that somebody else
+# can send you the archive, that hands them the topology you see.
 MEMBERS: dict[str, str] = {
     "devices": "unifi/devices.json",
     "topology": "unifi/topology.json",
@@ -78,6 +84,12 @@ MEMBERS: dict[str, str] = {
     # per host. Read as a last-resort address source and, above
     # MIN_FINGERPRINT_CONFIDENCE, as a fingerprint. See _dpi_hosts.
     "dpi": "system/network/dpi-util-fprint-stats",
+}
+
+# One leading component, then exactly the expected path. Nothing deeper, nothing
+# with an extra directory spliced in front of the tail.
+_MEMBER_PATTERNS: dict[str, re.Pattern[str]] = {
+    name: re.compile(r"^[^/]+/" + re.escape(tail) + r"$") for name, tail in MEMBERS.items()
 }
 
 # `ml.deviceNameID` is in the same id space as the controller's `dev_id`, but it
@@ -147,7 +159,11 @@ def _read_members(
                 if not member.isfile():
                     continue
                 name = next(
-                    (key for key, tail in MEMBERS.items() if member.name.endswith("/" + tail)),
+                    (
+                        key
+                        for key, pattern in _MEMBER_PATTERNS.items()
+                        if pattern.match(member.name)
+                    ),
                     None,
                 )
                 if name is None or name in found:

@@ -138,6 +138,11 @@ def load_config(env_file: Path | None = None) -> ExporterConfig:
     from_file: dict[str, str] = {}
     for candidate in searched:
         if candidate.is_file():
+            # Named because `./.env` is searched before the home config, so
+            # running from an unfamiliar directory can pick up its credentials
+            # rather than yours. Knowing which file was read makes that visible
+            # instead of surprising.
+            log.info("Reading credentials from %s", candidate)
             from_file = read_dotenv(candidate)
             break
 
