@@ -267,12 +267,6 @@ headings, check what was in between.
   to the old one. Worth at least documenting, since it explains apparent
   duplicates on any modern network.
 
-- **The CDN URLs are hard-coded as though they were a stable public API.** They
-  are not; they are observed behaviour, and three of them were found by reading
-  logs and bundles. They will move. Currently a `log.warning` and a fallback,
-  which is the right behaviour, but the risk is not stated anywhere a user
-  would see it.
-
 - **Nothing has been profiled on a large site.** The joins are dictionary-based
   and probably fine, but `sysid_for_name()` scans the catalogue per candidate
   and no one has looked at a site with thousands of clients. Check before

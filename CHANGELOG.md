@@ -31,6 +31,16 @@ Refactors, docs and tests alone do not need a release at all.
 
 ## Unreleased
 
+### Changed
+
+- `SECURITY.md` no longer says "Nothing is uploaded anywhere" about artwork
+  fetching. No body is sent, but the URLs carry `sysid`, `dev_id` and `asn`,
+  which together disclose a partial hardware inventory to Ubiquiti's CDN. The
+  section now says what is actually revealed and what is not.
+- CI actions are pinned to commit SHAs rather than mutable tags, Dependabot
+  keeps them and the Python dependencies moving, and a non-gating `pip-audit`
+  job reports advisories.
+
 ### Fixed
 
 - An API key is no longer visible to Graphviz or any other child process. It is

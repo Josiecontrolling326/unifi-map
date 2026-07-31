@@ -186,9 +186,24 @@ whether an obfuscated render (`--obfuscate`) answers the question instead.
 
 ## Outbound network access
 
-Beyond your controller, the tool fetches device artwork from Ubiquiti's public
-endpoints (`static.ui.com`) on first use and caches it locally. Nothing is
-uploaded anywhere.
+Beyond your controller, the tool fetches artwork and lookup data from
+Ubiquiti's public endpoints (`static.ui.com`) on first use and caches it
+locally.
+
+**No file or request body is sent, but that is not the same as sending
+nothing.** The URLs themselves carry information about your network:
+
+- Device artwork is requested by hardware `sysid`, so the request says which
+  UniFi models you own.
+- Client artwork is requested by fingerprint `dev_id`, so it says which
+  products the console has identified on your network.
+- An ISP brand mark is requested by your provider's `asn`, so it says who
+  supplies your connectivity.
+
+Taken together, and correlated with your source address and the timing of a
+render, that is a partial inventory disclosed to Ubiquiti's CDN. No hostnames,
+addresses, MAC addresses or SSIDs are included, and nothing is uploaded, but
+"nothing is uploaded" would be a misleading way to summarise it.
 
 To avoid that entirely, use `--icons builtin`, which draws geometric shapes and
 touches no external host, or `--offline`, which forbids fetching and uses only
