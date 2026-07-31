@@ -224,9 +224,55 @@ their bare IP address. Understand that this makes the connection
 interceptable on an untrusted network. Pointing the tool at a hostname with a
 valid certificate, or at a CA bundle path, is better where possible.
 
-## What is not audited
+## How the credential is protected
+
+- **It is never written into the process environment.** A key read from a
+  credential file is parsed into a mapping, not exported, so no child process
+  inherits it. Anything you export yourself is stripped from the environment
+  handed to child processes.
+- **It is not carried across a redirect to another host.** `requests` does that
+  for `Authorization` and nothing else, and ours is a custom `X-API-KEY` header.
+  A redirect that changes host, port or scheme drops it and says so. Redirects
+  themselves still work, so a reverse proxy in front of your console is fine.
+- **Graphviz is executed by resolved absolute path**, not by name, so a binary
+  earlier on `PATH` cannot stand in for it.
+- **A credential file that other local accounts can read produces a warning**,
+  and the file that was loaded is named, since `./.env` is searched before the
+  home config.
+
+## How untrusted input is handled
+
+A support file is somebody else's data by design, so it is parsed as hostile.
+
+- **Member paths are anchored**, requiring exactly one leading directory
+  component and then the expected path. A trailing-fragment match would let a
+  crafted archive add `evil/unifi/devices.json` and win by appearing earlier in
+  the stream, which would let the sender choose the topology you see. That was a
+  real defect, found by review and fixed.
+- **Nothing is extracted to disk.** The archive is streamed, only seven members
+  are decoded, non-regular members are skipped, and members, the total and the
+  entry count are all capped. The size caps are adjustable, because refusing a
+  legitimately large network would be its own failure.
+- **Device names become text, not markup.** Every draw.io cell enables HTML, and
+  draw.io decodes the XML attribute before parsing it, so values are HTML-escaped
+  before the diagram's own `<b>` and `<br>` are added. A device named
+  `<img src=x onerror=...>` renders as those characters.
+- **Downloaded images are size-capped** on the declared length and again on what
+  arrives, and the decompression-bomb threshold is tightened well below Pillow's
+  default, which is sized for photographs rather than icons.
+
+## What has and has not been reviewed
 
 Stated plainly, since it bears on how much you should trust this: most of the
 code was written by an AI assistant under the maintainer's direction and testing.
-It has tests, and the design decisions have reasons recorded in `CLAUDE.md`, but
-it has not had a line-by-line human security review.
+`AI_DISCLOSURE.md` covers that in full.
+
+**Two independent security reviews have been performed**, each by a different AI
+system acting as a reviewer, working from the source. Between them they raised
+fourteen findings. All are fixed except two that were declined with reasons
+recorded in `CLAUDE.md`, and the more serious ones were reproduced before being
+fixed and re-tested afterwards. The second review found a real vulnerability the
+first had missed, which is the argument for more than one.
+
+**There has been no line-by-line human security review, and no penetration
+test.** Those reviews were thorough and useful; they are not the same thing.
