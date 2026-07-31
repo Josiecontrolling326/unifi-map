@@ -268,11 +268,16 @@ code was written by an AI assistant under the maintainer's direction and testing
 `AI_DISCLOSURE.md` covers that in full.
 
 **Two independent security reviews have been performed**, each by a different AI
-system acting as a reviewer, working from the source. Between them they raised
-fourteen findings. All are fixed except two that were declined with reasons
-recorded in `CLAUDE.md`, and the more serious ones were reproduced before being
-fixed and re-tested afterwards. The second review found a real vulnerability the
-first had missed, which is the argument for more than one.
+system working from the source, neither of them the assistant that wrote the
+code. One raised eleven findings and the other seven, overlapping heavily.
+Everything raised is fixed except two items declined with reasons recorded in
+`CLAUDE.md`, and the serious ones were reproduced before being fixed and
+re-tested afterwards.
+
+The second review found three things the first had not, including a real
+vulnerability in support-file parsing. That is the argument for more than one
+reviewer, and against reading any single review, including these, as
+exhaustive.
 
 **There has been no line-by-line human security review, and no penetration
 test.** Those reviews were thorough and useful; they are not the same thing.

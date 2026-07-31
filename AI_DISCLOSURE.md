@@ -37,17 +37,26 @@ by the human and carry a `Co-Authored-By` trailer naming the model.
 - **Behaviour against a real network.** Every feature here was exercised against
   a live UniFi console and, where relevant, a real support file. Claims in the
   documentation that carry numbers were measured rather than estimated.
-- **An external security audit**, performed by a different AI system acting as a
-  reviewer, with findings triaged and either fixed or recorded with a reason.
-  Its findings are summarised in the changelog; the two declined items are in
-  `CLAUDE.md` with the reasoning.
+- **Two independent security reviews**, each performed by a different AI system
+  working from the source, neither of them the assistant that wrote it. One
+  raised eleven findings and the other seven, overlapping heavily. Everything
+  raised is fixed except two items declined with reasons recorded in
+  `CLAUDE.md`.
+
+  The second review is the more informative result. Most of what it found the
+  first had already found, but three items were new, including a real
+  vulnerability: a crafted support file could substitute its own topology data,
+  because archive members were matched on a trailing path fragment. It was
+  reproduced, fixed, and re-tested. One competent reviewer was not enough to
+  catch it, which is worth knowing when weighing any single review, this
+  document included.
 
 ## What has not been verified
 
 - **No line-by-line human code review.** The human read a great deal of it,
   directed its shape, and rejected plenty, but nobody has audited every line.
-- **No professional security assessment.** The audit above was thorough and
-  useful; it was not a penetration test and it was not performed by a human
+- **No professional security assessment.** The reviews above were thorough and
+  useful; neither was a penetration test, and neither was performed by a human
   specialist.
 - **One controller, one site.** UniFi Network 10.5.67 on a UDM Pro Max, single
   site. Multi-site handling exists and is largely untested.

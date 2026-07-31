@@ -622,7 +622,7 @@ the remote explicitly every time.
   exactly one leading directory component and then the expected path. Matching
   a trailing fragment instead lets a crafted archive add
   `evil/unifi/devices.json`, which ends the same way, and win by appearing
-  earlier in the stream. Found by an external audit, reproduced, fixed, and
+  earlier in the stream. Found by the second of two external reviews and missed by the first, reproduced, fixed, and
   covered by a test that builds the malicious archive. Do not loosen it.
 - Non-regular members are skipped, nothing is extracted to disk, members and
   the total are size-capped and tunable, and the entry count is capped.
