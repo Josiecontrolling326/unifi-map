@@ -230,6 +230,71 @@ Restored after being deleted by accident in 9b18a1a, where a section replacement
 spanned two headings and took this with it. If you replace a range between
 headings, check what was in between.
 
+### Defects, found by audit and verified
+
+These are bugs rather than missing features, and the first two lose or leak
+something. Do these before the feature work below.
+
+- **The API key can follow a redirect to another host.** `client.py` sets
+  `X-API-KEY` on the session and calls `session.get` with redirects enabled.
+  `requests.Session.rebuild_auth` strips only `Authorization` when the host
+  changes; a custom header rides along untouched, which was confirmed by
+  reading it rather than assumed.
+
+  What makes this worth fixing rather than noting: the README documents
+  `UNIFI_VERIFY_TLS=false` as the ordinary thing to do for a bare IP. With
+  verification off, redirects followed, and the header not stripped, anyone in
+  the path can redirect the tool to a host of their choosing and be handed the
+  key. Our own documentation is what sharpens it.
+
+  Fix is small: `allow_redirects=False` on the controller requests, or refuse a
+  redirect whose host differs from `config.host`. A UniFi console has no
+  legitimate reason to redirect these paths off-host.
+
+- **`render` silently destroys hand-edited output.** Put a file at
+  `out/network-map.drawio`, run `render`, and it is gone with no warning.
+  Verified by doing it. This is worst for `.drawio`, the one format advertised
+  as editable, so opening it and rearranging it is exactly the intended
+  workflow. Wants a refusal unless `--force`, or a numbered backup, or at
+  minimum a warning naming the file.
+
+- **Writes are not atomic.** `write_text` and `write_bytes` go straight to the
+  destination, so a crash, a full disk or an interrupt part-way through leaves a
+  truncated file where a working one used to be. Write to a temporary file in
+  the same directory and rename over the target.
+
+### Gaps worth considering, in rough order of value
+
+- **Provenance and confidence.** `Edge.asserted` marks an override-supplied link
+  and nothing else distinguishes observed from inferred. A client placed from
+  the v2 topology graph, one placed from `stat/sta`, and one whose fingerprint
+  was recovered from its name are all drawn identically and with equal apparent
+  authority. The tool already refuses to invent; it does not yet say how sure it
+  is about what it did draw.
+
+- **No reconciliation report.** Counts are logged and unplaceable clients get a
+  visible placeholder, but nothing enumerates what did not match: clients with
+  no address, devices with no artwork, ambiguous name matches that were refused,
+  networks referenced but not defined. A `--report` summarising those would turn
+  "the map looks plausible" into something checkable, and would have caught at
+  least two of the wrong conclusions recorded in this file.
+
+- **Randomised client MACs are not a concept here.** Every join is on MAC, and a
+  phone rotating its MAC appears as a new client with no history and no relation
+  to the old one. Worth at least documenting, since it explains apparent
+  duplicates on any modern network.
+
+- **The CDN URLs are hard-coded as though they were a stable public API.** They
+  are not; they are observed behaviour, and three of them were found by reading
+  logs and bundles. They will move. Currently a `log.warning` and a fallback,
+  which is the right behaviour, but the risk is not stated anywhere a user
+  would see it.
+
+- **Nothing has been profiled on a large site.** The joins are dictionary-based
+  and probably fine, but `sysid_for_name()` scans the catalogue per candidate
+  and no one has looked at a site with thousands of clients. Check before
+  claiming it scales.
+
 - **Draw our own device icons instead of falling back to Graphviz shapes.**
   `KIND_SHAPE` currently maps each role to a primitive: `doubleoctagon` for a
   gateway, `box3d` for a switch, `trapezium` for an AP, `diamond` for unknown.
