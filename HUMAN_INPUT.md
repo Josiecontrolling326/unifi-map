@@ -52,9 +52,14 @@ Decisions at the outset:
   we drew our own using the same construction idea.
 - **Check the cloud is legible in both light and dark.** He had to ask twice,
   because my first answer did not address it.
-- The README had grown long and dense. He asked for a **summary near the top**
-  so nobody has to read the whole thing to decide whether to try it, with
-  warnings cut down to one-line pointers into sections.
+- The README had grown long and dense. He asked for a **feature list directly
+  below the screenshots and above everything else**, so nobody has to read the
+  whole thing to decide whether to try it, with warnings cut down to pointers
+  into the sections that explain them.
+- **Do not downscale the example images.** I had been shrinking them to keep the
+  repository small, which made the labels unreadable and so argued against the
+  one thing the screenshots exist to demonstrate. Full resolution, and the
+  repository can be 3 MB.
 
 ## Publishing, privacy and process
 
@@ -130,6 +135,16 @@ Decisions at the outset:
   surprise rather than the measurement.
 - On obfuscation: hiding the ISP *name* while drawing its *logo* is pointless.
   Correct, and it is why both are now dropped.
+- **A stale caption**, on the obfuscated example: it claimed artwork was
+  untouched after obfuscation had started dropping the ISP mark, and the image
+  beneath it predated several changes. He spotted both.
+- **The feature list I wrote was not a feature list.** I produced a table of
+  categories, Input and Output and Scope, describing the tool's dimensions
+  rather than what it does. He said it had been misunderstood, which it had.
+- **On missing artwork, he stopped me building something.** I had queued a
+  summary count for assets that 404. His answer was to document the `-v` flag
+  that already logs them and ask for its output in the issue templates. The
+  flag turned out to be undocumented, which is probably why I reached for code.
 - He caught that the GitHub repository description had been set for some time
   while it kept reappearing on my todo list, because a setting cannot be seen
   from a checkout.
@@ -160,6 +175,5 @@ Decisions at the outset:
 - Drawn device icons replace Graphviz primitives in `--icons builtin` **and**
   become the fallback in `--icons unifi` when a device is absent from
   Ubiquiti's catalogue.
-- Assets that 404 should not be silent at the default log level.
 - A release process, and a man page generated from the argument parser rather
   than written twice.
