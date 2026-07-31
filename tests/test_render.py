@@ -411,3 +411,87 @@ class TestWritesAreAtomic:
         # Not truncated, not replaced, and no debris beside it.
         assert path.read_text(encoding="utf-8") == "the good previous render"
         assert [p.name for p in tmp_path.iterdir()] == ["e.svg"]
+
+
+class TestDrawioLabelsAreNotMarkup:
+    """Device names are attacker-controlled and every cell sets `html=1`.
+
+    ElementTree XML-escapes the attribute, but draw.io decodes it back and then
+    parses it as HTML, so XML escaping alone is not enough. Whoever named the
+    device decides what the string is.
+    """
+
+    def _render(self, label):
+        from unifi_map.layout import Layout, Placed
+        from unifi_map.model import Kind, Node, Topology
+        from unifi_map.render_drawio import render_drawio
+        from unifi_map.theme import LIGHT
+
+        topo = Topology()
+        topo.add(Node(id="a", label=label, kind=Kind.SWITCH, ip="10.0.0.1"))
+        layout = Layout(
+            nodes={"a": Placed(x=0.0, y=0.0, width=10.0, height=10.0)}, width=10.0, height=10.0
+        )
+        return render_drawio(topo, layout, "t", LIGHT)
+
+    def test_an_img_tag_in_a_device_name_stays_text(self):
+        # Double-escaped: HTML-escaped by us, then XML-escaped on serialisation.
+        # draw.io undoes the XML layer and is left with literal `&lt;img`.
+        xml = self._render('<img src=x onerror="alert(1)">')
+        assert "&amp;lt;img" in xml
+        assert "&lt;img" not in xml.replace("&amp;lt;img", "")
+
+    def test_an_anchor_in_a_device_name_stays_text(self):
+        assert "&amp;lt;a href" in self._render('<a href="http://evil.example">x</a>')
+
+    def test_an_injected_tag_in_an_edge_label_stays_text(self):
+        from unifi_map.layout import Layout, Placed
+        from unifi_map.model import Edge, Kind, Node, Topology
+        from unifi_map.render_drawio import render_drawio
+        from unifi_map.theme import LIGHT
+
+        topo = Topology()
+        topo.add(Node(id="a", label="a", kind=Kind.SWITCH))
+        topo.add(Node(id="b", label="b", kind=Kind.AP))
+        topo.edges.append(Edge(src="b", dst="a", label="<img src=x>"))
+        layout = Layout(
+            nodes={
+                "a": Placed(x=0.0, y=0.0, width=10.0, height=10.0),
+                "b": Placed(x=0.0, y=20.0, width=10.0, height=10.0),
+            },
+            width=10.0,
+            height=30.0,
+        )
+        assert "&amp;lt;img" in render_drawio(topo, layout, "t", LIGHT)
+
+    def test_our_own_markup_is_still_markup(self):
+        # Single-escaped, so draw.io renders real bold rather than showing tags.
+        assert "&lt;b&gt;switch&lt;/b&gt;" in self._render("switch")
+
+
+class TestCredentialFilePermissions:
+    """The file holds a key with the account's full permissions.
+
+    A plain `cp` of the example inherits the umask, which on most systems leaves
+    it world-readable, so this is the likely state rather than an exotic one.
+    """
+
+    def test_a_world_readable_credential_file_is_flagged(self, tmp_path, caplog):
+        from unifi_map.config import load_dotenv
+
+        env = tmp_path / "env"
+        env.write_text("UNIFI_HOST=example.com\n", encoding="utf-8")
+        env.chmod(0o644)
+        with caplog.at_level("WARNING"):
+            load_dotenv(env)
+        assert "readable by other users" in caplog.text
+
+    def test_a_private_credential_file_is_silent(self, tmp_path, caplog):
+        from unifi_map.config import load_dotenv
+
+        env = tmp_path / "env"
+        env.write_text("UNIFI_HOST=example.com\n", encoding="utf-8")
+        env.chmod(0o600)
+        with caplog.at_level("WARNING"):
+            load_dotenv(env)
+        assert "readable by other users" not in caplog.text

@@ -2,9 +2,13 @@
 
 A support file is the archive the console produces under Settings > System >
 Support File. It contains, among a great deal of else, everything this tool
-needs to draw a map, which makes it a second input worth supporting: it needs no
-credentials and no network access, so it is a safe thing for someone to hand
-over when reporting a bug about their own topology.
+needs to draw a map, which makes it a second input worth supporting: it needs
+neither credentials nor network access.
+
+That is not the same as the archive being safe to hand over, and the two get
+conflated easily. Reading one requires no trust; *sending* one discloses far
+more than this module reads, including material this module never opens. See the
+warning in `cli._fetch_from_support_file` and the section in `SECURITY.md`.
 
 The output is a `Snapshot` carrying the same payload keys, in the same shapes,
 that `client.py` produces from the live API. Everything downstream of `model.py`

@@ -70,7 +70,7 @@ make demo
 Then against your own network:
 
 ```bash
-cp .env.example .env    # host + API key
+install -m 600 .env.example .env    # host + API key, readable only by you
 unifi-map all
 ```
 
@@ -121,8 +121,13 @@ improves layout on large networks.
 ## Credentials
 
 ```bash
-cp .env.example .env      # then edit
+install -m 600 .env.example .env      # then edit
 ```
+
+`install -m 600` rather than `cp` on purpose. A plain copy inherits your umask,
+which on most systems leaves the file world-readable, and it is about to hold an
+API key with your account's permissions. `unifi-map` warns if it reads a
+credential file that others can see.
 
 Or set `UNIFI_MAP_ENV=/path/to/credentials` to keep them outside the project.
 Files are searched in order: `--env-file`, `$UNIFI_MAP_ENV`, `./.env`,

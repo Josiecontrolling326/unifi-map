@@ -257,7 +257,7 @@ def protect_camera_macs(snapshot: Snapshot) -> set[str]:
         raw = entry.get("mac")
         if not raw:
             continue
-        # Protect reports MACs unpunctuated: E438830B5F76.
+        # Protect reports MACs unpunctuated: 02AABB0B5F76.
         hexed = "".join(ch for ch in str(raw).lower() if ch in "0123456789abcdef")
         if len(hexed) == 12:
             macs.add(":".join(hexed[i : i + 2] for i in range(0, 12, 2)))

@@ -108,7 +108,8 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
     Deliberately writes the same cache `fetch` writes, so every render option,
     including per-network diagrams, overrides and obfuscation, works afterwards
     without knowing the difference. No credentials are read and no request is
-    made, which is what makes a support file a safe thing to be sent.
+    made, which is what makes reading one safe. Sending one is a different
+    question entirely, and the answer is no; see the warning below.
     """
     # Said here rather than only in the docs, because this is the moment someone
     # has the archive in hand and is deciding what to do with it next. The

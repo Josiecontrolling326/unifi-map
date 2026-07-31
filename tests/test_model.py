@@ -408,8 +408,8 @@ class TestProtectCameras:
     def test_unpunctuated_protect_macs_are_normalised(self):
         from unifi_map.model import protect_camera_macs
 
-        snap = Snapshot(payloads={"protect_cameras": [{"mac": "E438830B5F76", "name": "G3 Flex"}]})
-        assert protect_camera_macs(snap) == {"e4:38:83:0b:5f:76"}
+        snap = Snapshot(payloads={"protect_cameras": [{"mac": "02AABB0B5F76", "name": "G3 Flex"}]})
+        assert protect_camera_macs(snap) == {"02:aa:bb:0b:5f:76"}
 
     def test_wrapped_and_missing_payloads_are_tolerated(self):
         from unifi_map.model import protect_camera_macs
@@ -420,16 +420,16 @@ class TestProtectCameras:
         assert (
             protect_camera_macs(Snapshot(payloads={"protect_cameras": [{"mac": "nope"}]})) == set()
         )
-        wrapped = Snapshot(payloads={"protect_cameras": {"data": [{"mac": "E438830B5F76"}]}})
+        wrapped = Snapshot(payloads={"protect_cameras": {"data": [{"mac": "02AABB0B5F76"}]}})
         assert wrapped.get("protect_cameras") is not None
-        assert protect_camera_macs(wrapped) == {"e4:38:83:0b:5f:76"}
+        assert protect_camera_macs(wrapped) == {"02:aa:bb:0b:5f:76"}
 
     def test_a_protect_camera_client_is_flagged(
         self, devices: dict, clients: dict, networkconf: dict
     ):
         clients["data"].append(
             {
-                "mac": "e4:38:83:0b:5f:76",
+                "mac": "02:aa:bb:0b:5f:76",
                 "hostname": "g3-flex",
                 "oui": "Ubiquiti Inc",
                 "is_wired": True,
@@ -444,11 +444,11 @@ class TestProtectCameras:
                     "device": devices,
                     "client_active": clients,
                     "networkconf": networkconf,
-                    "protect_cameras": [{"mac": "E438830B5F76"}],
+                    "protect_cameras": [{"mac": "02AABB0B5F76"}],
                 }
             )
         )
-        node = topo.nodes["e4:38:83:0b:5f:76"]
+        node = topo.nodes["02:aa:bb:0b:5f:76"]
         assert node.hardware_type == "camera"
         assert node.oui == "Ubiquiti Inc"
         # No fingerprint, so artwork has to come from the hardware catalog.

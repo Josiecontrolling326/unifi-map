@@ -9,6 +9,7 @@ embedded as a data URI so the file stands alone, and Lucid imports the same
 from __future__ import annotations
 
 import base64
+import html
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -77,19 +78,35 @@ def _node_style(node, theme: Theme, accent: str, icon: IconAsset | None) -> str:
     return "".join(parts)
 
 
+def _text(value: object) -> str:
+    """Escape a value that came from the controller before it becomes markup.
+
+    Every cell style here sets `html=1`, which tells draw.io to parse the value
+    as HTML. ElementTree XML-escapes the attribute on serialisation, but XML
+    escaping is not HTML escaping: draw.io decodes the attribute back to the
+    original characters and *then* renders them. So a device named
+    `<img src=x onerror=...>` arrives as an element rather than as text.
+
+    Nothing here is trusted. Device and client names come from a controller, or
+    from a support file somebody else produced, and both are ultimately set by
+    whoever named the device. The intentional `<b>` and `<br>` are added after
+    escaping, so only this module can emit markup.
+    """
+    return html.escape(str(value), quote=False)
+
+
 def _node_value(node) -> str:
-    lines = [f"<b>{node.label}</b>"]
+    lines = [f"<b>{_text(node.label)}</b>"]
     if node.ip:
-        lines.append(node.ip)
+        lines.append(_text(node.ip))
     if node.detail and node.detail != node.label:
-        lines.append(node.detail)
+        lines.append(_text(node.detail))
     if node.network and node.kind in _CLIENT_KINDS:
         vlan = f" · VLAN {node.vlan}" if node.vlan else ""
-        lines.append(f"{node.network}{vlan}")
+        lines.append(_text(f"{node.network}{vlan}"))
     if node.offline:
         lines.append("<b>OFFLINE</b>")
-    # html=1 is set on every style, so <br> separates lines. ElementTree
-    # escapes the attribute value on serialisation.
+    # html=1 is set on every style, so <br> separates lines.
     return "<br>".join(lines)
 
 
@@ -177,7 +194,7 @@ def render_drawio(
             root,
             "mxCell",
             id=f"e{index}",
-            value=edge.label or "",
+            value=_text(edge.label or ""),
             style=style,
             edge="1",
             parent="1",

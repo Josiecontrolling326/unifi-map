@@ -33,6 +33,15 @@ Refactors, docs and tests alone do not need a release at all.
 
 ### Fixed
 
+- draw.io labels are HTML-escaped. Every cell sets `html=1`, and draw.io decodes
+  the XML attribute and then parses the result as HTML, so a device named
+  `<img src=x onerror=...>` previously arrived as an element rather than as
+  text. Device names are set by whoever named the device.
+- The documented way to create a credential file is now `install -m 600` rather
+  than `cp`, which inherited the umask and usually left an API key
+  world-readable. `unifi-map` now warns when it reads one others can see.
+- A real Ubiquiti device MAC in the test fixtures was replaced with a
+  locally administered one.
 - Rendering no longer overwrites a `.dot` or `.drawio` that this tool did not
   write. A hand-edited diagram is left alone, with `--force` to override.
   Re-rendering output it recognises as its own is unchanged and needs no flag.

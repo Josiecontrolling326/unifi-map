@@ -6,9 +6,12 @@ makes swapping the ``.env`` file for OpenBao/Vault a single-file change later.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 class ConfigError(RuntimeError):
@@ -75,11 +78,40 @@ def _parse_verify(raw: str) -> bool | str:
     return raw.strip()
 
 
+def _warn_if_readable_by_others(path: Path) -> None:
+    """Say so if a credential file is not private.
+
+    The file holds an API key carrying the permissions of the account that
+    created it, and UniFi offers no narrower scope. A plain `cp` of the example
+    file inherits the user's umask, which on most systems leaves it
+    world-readable, so this is the likely state rather than an unusual one.
+
+    A warning rather than a refusal: the file may be deliberately shared in some
+    setups, and failing outright would be worse than saying what is true.
+    Windows has no meaningful equivalent, so the check is skipped there.
+    """
+    if os.name != "posix":
+        return
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return
+    if mode & 0o077:
+        log.warning(
+            "%s is readable by other users (mode %o). It holds an API key with "
+            "your account's permissions. Fix with: chmod 600 %s",
+            path,
+            mode & 0o777,
+            path,
+        )
+
+
 def load_dotenv(path: Path) -> None:
     """Load KEY=VALUE lines from *path* into os.environ without overriding
     variables already set in the real environment."""
     if not path.is_file():
         return
+    _warn_if_readable_by_others(path)
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -116,7 +148,8 @@ def load_config(env_file: Path | None = None) -> ExporterConfig:
             "Missing required configuration: "
             + ", ".join(missing)
             + f". Checked the environment and: {locations}. "
-            f"Copy .env.example to .env, or set {ENV_FILE_VAR} to a credential file."
+            "Create .env with `install -m 600 .env.example .env`, or set "
+            f"{ENV_FILE_VAR} to a credential file."
         )
 
     assert host and api_key  # narrowed above
