@@ -33,6 +33,11 @@ Refactors, docs and tests alone do not need a release at all.
 
 ### Fixed
 
+- Rendering no longer overwrites a `.dot` or `.drawio` that this tool did not
+  write. A hand-edited diagram is left alone, with `--force` to override.
+  Re-rendering output it recognises as its own is unchanged and needs no flag.
+- Output files are written atomically, so an interrupted or failed render leaves
+  the previous file intact rather than a truncated one.
 - The API key is no longer sent on if a redirect points at a different host.
   `requests` does this for `Authorization` and nothing else, and ours is a
   custom header. It mattered because `UNIFI_VERIFY_TLS=false` is documented as

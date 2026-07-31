@@ -18,7 +18,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import logging
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 from . import __version__
@@ -141,6 +143,69 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
     for name, payload in sorted(snapshot.payloads.items()):
         log.info("  %-14s %s", name, _describe(payload))
     return 0
+
+
+class OutputExistsError(RuntimeError):
+    """Raised rather than overwrite a file this tool did not write."""
+
+
+# Both editable formats carry this already: the DOT opens `digraph unifi` and
+# the draw.io file opens `<mxfile host="unifi-map"`. Only the first few KiB are
+# searched, which is where a header lives in either.
+_PROVENANCE = ("unifi-map", "digraph unifi")
+
+
+def _is_ours(path: Path) -> bool:
+    try:
+        head = path.read_bytes()[:4096].decode("utf-8", errors="replace")
+    except OSError:
+        # Unreadable is not proof it is ours, so treat it as somebody else's.
+        return False
+    return any(marker in head for marker in _PROVENANCE)
+
+
+def _write_output(path: Path, data: bytes | str, *, force: bool, guard: bool) -> None:
+    """Write *data* to *path*, atomically, without eating anyone's work.
+
+    Two separate problems, both real.
+
+    *guard* is set for the formats a person plausibly hand-edits: `.drawio`,
+    which is advertised as editable and is the whole point of that output, and
+    `.dot`, which exists to be tweaked. Re-rendering must stay cheap, since
+    `fetch` and `render` are split precisely so render can be run over and over,
+    so this refuses only when the existing file carries none of our markers.
+    Overwriting our own previous output needs no ceremony. The raster and PDF
+    outputs are not guarded: nothing hand-authors those at exactly this path,
+    and they carry nowhere convenient to put a marker.
+
+    The write itself goes to a temporary file beside the target and is renamed
+    over it, so an interrupt or a full disk leaves the previous good file in
+    place rather than a truncated one. `os.replace` is atomic within a
+    filesystem, and the temporary is created in the destination directory to
+    guarantee that.
+    """
+    if guard and not force and path.exists() and not _is_ours(path):
+        raise OutputExistsError(
+            f"{path} was not written by unifi-map, so it is being left alone. "
+            "Pass --force to overwrite it, or use --name or --out-dir to write "
+            "somewhere else."
+        )
+
+    payload = data.encode("utf-8") if isinstance(data, str) else data
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as handle:
+            tmp = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        tmp = None
+    finally:
+        if tmp is not None and tmp.exists():
+            tmp.unlink(missing_ok=True)
 
 
 def _obtain_icon_font(args: argparse.Namespace, store: AssetStore) -> None:
@@ -323,6 +388,7 @@ def _write_outputs(
     style: Style,
     icons: dict[str, IconAsset],
     stagger_depth: int = 0,
+    force: bool = False,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -335,7 +401,7 @@ def _write_outputs(
 
     if "dot" in formats:
         path = out_dir / f"{stem}.dot"
-        path.write_text(dot_source, encoding="utf-8")
+        _write_output(path, dot_source, force=force, guard=True)
         log.info("  %s", path)
 
     for fmt in ("svg", "pdf", "png"):
@@ -347,14 +413,14 @@ def _write_outputs(
             # SVG is a single portable file.
             data = inline_svg_images(data, allowed=icon_paths)
         path = out_dir / f"{stem}.{fmt}"
-        path.write_bytes(data)
+        _write_output(path, data, force=force, guard=False)
         log.info("  %s (%.1f KiB)", path, len(data) / 1024)
 
     if "drawio" in formats:
         layout = compute_layout(dot_source)
         xml = render_drawio(topo, layout, stem, style.theme, icons)
         path = out_dir / f"{stem}.drawio"
-        path.write_text(xml, encoding="utf-8")
+        _write_output(path, xml, force=force, guard=True)
         log.info("  %s (%.1f KiB)", path, len(xml.encode()) / 1024)
 
 
@@ -447,6 +513,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         style,
         icons,
         _stagger_for(topo, args.stagger, style),
+        force=args.force,
     )
 
     if args.per_network:
@@ -465,6 +532,7 @@ def cmd_render(args: argparse.Namespace) -> int:
                 style,
                 icons,
                 _stagger_for(view, args.stagger, style),
+                force=args.force,
             )
 
     return 0
@@ -585,6 +653,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render_flags.add_argument("--name", default="network-map", help="Output filename stem")
     render_flags.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite output files that unifi-map did not write. Without this, "
+        "an existing .dot or .drawio it does not recognise is left alone, so a "
+        "diagram you have edited by hand is not silently replaced.",
+    )
+    render_flags.add_argument(
         "--overrides",
         type=Path,
         default=None,
@@ -678,7 +753,7 @@ def main(argv: list[str] | None = None) -> int:
     except GraphvizMissing as exc:
         log.error("%s", exc)
         return 3
-    except (UniFiError, GraphvizError, SupportFileError, AssetError) as exc:
+    except (UniFiError, GraphvizError, SupportFileError, AssetError, OutputExistsError) as exc:
         log.error("%s", exc)
         return 1
 

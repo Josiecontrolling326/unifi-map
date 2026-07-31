@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 
 import pytest
@@ -341,3 +342,72 @@ class TestApiKeyIsNotCarriedAcrossHosts:
         # A reverse proxy normalising a path or trailing slash must keep working.
         headers = self._redirect("https://console.example.com/a", "https://console.example.com/a/")
         assert headers["X-API-KEY"] == "secret"
+
+
+class TestOutputIsNotClobbered:
+    """Writing a diagram must not eat one somebody edited by hand.
+
+    `.drawio` is advertised as editable, so opening it and rearranging it is the
+    intended workflow rather than an unusual one. Re-rendering our own output,
+    by contrast, has to stay free of ceremony: `fetch` and `render` are split
+    precisely so render can be run over and over.
+    """
+
+    def _write(self, tmp_path, name, body, **kwargs):
+        from unifi_map.cli import _write_output
+
+        path = tmp_path / name
+        path.write_text(body, encoding="utf-8")
+        _write_output(path, "replacement", **kwargs)
+        return path
+
+    def test_a_foreign_file_is_refused(self, tmp_path):
+        from unifi_map.cli import OutputExistsError, _write_output
+
+        path = tmp_path / "network-map.drawio"
+        path.write_text("MY HAND EDITED DIAGRAM", encoding="utf-8")
+        with pytest.raises(OutputExistsError, match="not written by unifi-map"):
+            _write_output(path, "replacement", force=False, guard=True)
+        assert path.read_text(encoding="utf-8") == "MY HAND EDITED DIAGRAM"
+
+    def test_force_overrides_the_refusal(self, tmp_path):
+        path = self._write(tmp_path, "a.drawio", "MY HAND EDITED DIAGRAM", force=True, guard=True)
+        assert path.read_text(encoding="utf-8") == "replacement"
+
+    def test_our_own_drawio_is_replaced_without_ceremony(self, tmp_path):
+        path = self._write(
+            tmp_path, "b.drawio", '<mxfile host="unifi-map">', force=False, guard=True
+        )
+        assert path.read_text(encoding="utf-8") == "replacement"
+
+    def test_our_own_dot_is_replaced_without_ceremony(self, tmp_path):
+        path = self._write(tmp_path, "c.dot", "digraph unifi {\n}\n", force=False, guard=True)
+        assert path.read_text(encoding="utf-8") == "replacement"
+
+    def test_unguarded_formats_are_overwritten(self, tmp_path):
+        # Nobody hand-authors a PNG at exactly this path, and there is nowhere
+        # convenient to put a marker in one.
+        path = self._write(tmp_path, "d.png", "whatever", force=False, guard=False)
+        assert path.read_text(encoding="utf-8") == "replacement"
+
+
+class TestWritesAreAtomic:
+    def test_a_failed_write_leaves_the_previous_file_intact(self, tmp_path, monkeypatch):
+        from unifi_map.cli import _write_output
+
+        path = tmp_path / "e.svg"
+        path.write_text("the good previous render", encoding="utf-8")
+
+        real = os.replace
+
+        def fail(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("unifi_map.cli.os.replace", fail)
+        with pytest.raises(OSError):
+            _write_output(path, "half a file", force=False, guard=False)
+        monkeypatch.setattr("unifi_map.cli.os.replace", real)
+
+        # Not truncated, not replaced, and no debris beside it.
+        assert path.read_text(encoding="utf-8") == "the good previous render"
+        assert [p.name for p in tmp_path.iterdir()] == ["e.svg"]

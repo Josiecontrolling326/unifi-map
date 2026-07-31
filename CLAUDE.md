@@ -238,23 +238,6 @@ Restored after being deleted by accident in 9b18a1a, where a section replacement
 spanned two headings and took this with it. If you replace a range between
 headings, check what was in between.
 
-### Defects, found by audit and verified
-
-These are bugs rather than missing features, and the first two lose or leak
-something. Do these before the feature work below.
-
-- **`render` silently destroys hand-edited output.** Put a file at
-  `out/network-map.drawio`, run `render`, and it is gone with no warning.
-  Verified by doing it. This is worst for `.drawio`, the one format advertised
-  as editable, so opening it and rearranging it is exactly the intended
-  workflow. Wants a refusal unless `--force`, or a numbered backup, or at
-  minimum a warning naming the file.
-
-- **Writes are not atomic.** `write_text` and `write_bytes` go straight to the
-  destination, so a crash, a full disk or an interrupt part-way through leaves a
-  truncated file where a working one used to be. Write to a temporary file in
-  the same directory and rename over the target.
-
 ### Gaps worth considering, in rough order of value
 
 - **Provenance and confidence.** `Edge.asserted` marks an override-supplied link
@@ -591,6 +574,21 @@ Also note that live `fetch` caches the icon font automatically while support
 mode requires a flag, so out of the box live shows generic glyphs for
 unfingerprinted clients and support mode shows shapes. That is the opt-in
 privacy design working, not a data gap.
+
+## Writing output
+
+- **`.dot` and `.drawio` are not overwritten unless this tool wrote them.**
+  `_is_ours()` looks for `digraph unifi` or `unifi-map` in the first 4 KiB, both
+  of which those formats already emit, and `--force` bypasses it. The guard is
+  deliberately narrow: re-rendering must stay free of ceremony, since `fetch`
+  and `render` are split precisely so render can be run repeatedly, so it
+  refuses only files carrying none of our markers. PNG, PDF and SVG are not
+  guarded; nothing hand-authors one at exactly that path and there is nowhere
+  cheap to put a marker.
+- **Every output is written to a temporary file in the destination directory
+  and renamed over the target.** An interrupt or a full disk leaves the previous
+  good file rather than a truncated one. The temporary must be in the same
+  directory for `os.replace` to be atomic.
 
 ## Data hygiene
 
