@@ -93,26 +93,52 @@ MIN_FINGERPRINT_CONFIDENCE = 80
 # A support file is attacker-supplied data as far as this tool is concerned: the
 # whole point is that someone else can send you one. Decompressed members are
 # held in memory, so cap them rather than trusting the archive's own headers.
-MAX_MEMBER_BYTES = 256 * 1024 * 1024
-MAX_TOTAL_BYTES = 512 * 1024 * 1024
+#
+# Defaults sized from a real 154 MiB archive off a UDM Pro Max, where the
+# largest member read was `devices.json` at 400 KiB. 64 MiB is therefore about
+# 160x observed and still refuses anything absurd. A very large site could
+# exceed it legitimately, which is why both are tunable rather than guessed
+# once: `--support-max-member` and `--support-max-total`.
+MAX_MEMBER_BYTES = 64 * 1024 * 1024
+MAX_TOTAL_BYTES = 128 * 1024 * 1024
+
+# An archive with millions of entries costs time to walk even though nothing is
+# decoded. Real ones run to a few thousand.
+MAX_ARCHIVE_ENTRIES = 100_000
 
 
 class SupportFileError(RuntimeError):
     """Raised when a support file is unreadable or missing what we need."""
 
 
-def _read_members(path: Path) -> dict[str, bytes]:
+def _read_members(
+    path: Path,
+    max_member: int = MAX_MEMBER_BYTES,
+    max_total: int = MAX_TOTAL_BYTES,
+) -> dict[str, bytes]:
     """Pull the wanted members out of the archive in a single streaming pass.
 
     Opened in stream mode (`r|gz`), so the archive is never seeked and never
     held in memory whole. Nothing is written to disk: members are decoded into
     memory and everything else is skipped as it goes past.
+
+    The caps are arguments rather than constants because the right number
+    depends on the site. Refusing a legitimate archive from a large network
+    would be worse than the exhaustion the caps exist to prevent, so they are
+    raisable from the command line and the error says which flag to use.
     """
     found: dict[str, bytes] = {}
     total = 0
+    entries = 0
     try:
         with tarfile.open(path, "r|gz") as archive:
             for member in archive:
+                entries += 1
+                if entries > MAX_ARCHIVE_ENTRIES:
+                    raise SupportFileError(
+                        f"{path} holds more than {MAX_ARCHIVE_ENTRIES} entries. A real "
+                        "support file has a few thousand; refusing to keep walking it."
+                    )
                 if len(found) == len(MEMBERS):
                     break
                 # Skip anything that is not a plain file. A support file has no
@@ -126,23 +152,26 @@ def _read_members(path: Path) -> dict[str, bytes]:
                 )
                 if name is None or name in found:
                     continue
-                if member.size > MAX_MEMBER_BYTES:
+                if member.size > max_member:
                     raise SupportFileError(
-                        f"{member.name} is {member.size} bytes, over the "
-                        f"{MAX_MEMBER_BYTES} byte limit. Refusing to read it."
+                        f"{member.name} is {member.size} bytes, over the {max_member} "
+                        "byte limit. If this is a genuinely large site, raise it with "
+                        "--support-max-member."
                     )
                 handle = archive.extractfile(member)
                 if handle is None:
                     continue
-                data = handle.read(MAX_MEMBER_BYTES + 1)
-                if len(data) > MAX_MEMBER_BYTES:
+                data = handle.read(max_member + 1)
+                if len(data) > max_member:
                     raise SupportFileError(
-                        f"{member.name} expands past the {MAX_MEMBER_BYTES} byte limit."
+                        f"{member.name} expands past the {max_member} byte limit. "
+                        "Raise it with --support-max-member if that is legitimate."
                     )
                 total += len(data)
-                if total > MAX_TOTAL_BYTES:
+                if total > max_total:
                     raise SupportFileError(
-                        f"Support file members exceed {MAX_TOTAL_BYTES} bytes in total."
+                        f"Support file members exceed {max_total} bytes in total. "
+                        "Raise it with --support-max-total if that is legitimate."
                     )
                 found[name] = data
     except tarfile.TarError as exc:
@@ -514,7 +543,13 @@ def _health(infrastructure: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def load_support_file(path: Path, site: str | None = None, fingerprint_db: Any = None) -> Snapshot:
+def load_support_file(
+    path: Path,
+    site: str | None = None,
+    fingerprint_db: Any = None,
+    max_member: int = MAX_MEMBER_BYTES,
+    max_total: int = MAX_TOTAL_BYTES,
+) -> Snapshot:
     """Read *path* and return a Snapshot equivalent to a live fetch.
 
     *fingerprint_db* is the client fingerprint database, which a support file
@@ -522,10 +557,13 @@ def load_support_file(path: Path, site: str | None = None, fingerprint_db: Any =
     it clients still draw, without product artwork. `AssetStore.fingerprint_db()`
     obtains it from Ubiquiti's published copy, so no controller is involved.
 
+    *max_member* and *max_total* cap what is decoded into memory. They are
+    arguments because the right value depends on the site; see the constants.
+
     Raises `SupportFileError` if the archive is unreadable or does not carry
     the device and topology data a map needs.
     """
-    members = _read_members(path)
+    members = _read_members(path, max_member, max_total)
     missing = [MEMBERS[name] for name in ("devices", "topology") if name not in members]
     if missing:
         raise SupportFileError(

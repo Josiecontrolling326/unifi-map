@@ -595,6 +595,17 @@ snapshot, so a follow-up screenshot lines up with the first. They are assigned b
 a fixed ordering rather than derived from the real name, since a hash of a short
 hostname is trivially reversible.
 
+### Logs, and what `-v` reveals
+
+`--obfuscate` covers the diagram *and* the ordinary log output, so a scrubbed
+render is not accompanied by a terminal full of real names. There is a test that
+renders an identifying fixture and checks the captured log for every value it
+knows about.
+
+`-v` is the exception, deliberately. Verbose mode exists to explain why an
+individual device did not match, which means naming it. Do not paste `-v` output
+from a real network into a public issue.
+
 ### What it does not hide
 
 Two things worth understanding before you post a map publicly:

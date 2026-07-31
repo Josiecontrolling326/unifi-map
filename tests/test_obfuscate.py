@@ -354,3 +354,46 @@ class TestScrubbing:
         assert {n.vlan for n in after.nodes.values() if n.vlan} == {
             n.vlan for n in before.nodes.values() if n.vlan
         }
+
+
+@needs_graphviz
+def test_nothing_identifying_reaches_the_log_either(identifying, tmp_path, caplog):
+    """A scrubbed diagram beside a terminal full of real names is no use.
+
+    The render is what `--obfuscate` promises, but the log is what ends up in a
+    CI job, a scrollback buffer or a pasted transcript. Checked at the default
+    level, which is what an ordinary run produces; `-v` turns on DEBUG detail
+    that is deliberately not covered and is documented as such.
+    """
+    import logging
+
+    from unifi_map.cli import main
+
+    cache = tmp_path / "cache"
+    Snapshot(payloads=identifying["snapshot"].payloads).write(cache)
+
+    with caplog.at_level(logging.INFO):
+        code = main(
+            [
+                "--cache-dir",
+                str(cache),
+                "--out-dir",
+                str(tmp_path / "out"),
+                "--asset-cache",
+                str(tmp_path / "assets"),
+                "render",
+                "--obfuscate",
+                "--icons",
+                "builtin",
+                "--offline",
+                "-f",
+                "svg",
+                "--name",
+                "t",
+            ]
+        )
+    assert code == 0
+
+    text = caplog.text.lower()
+    leaked = [s for s in identifying["secrets"] if len(s) > 5 and s.lower() in text]
+    assert not leaked, f"identifying values reached the log: {leaked}"

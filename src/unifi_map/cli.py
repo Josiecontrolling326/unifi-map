@@ -35,6 +35,8 @@ from .overrides import apply as apply_overrides
 from .overrides import load as load_overrides
 from .render_dot import ICON_SETS, LAYOUTS, Style, render_dot
 from .render_drawio import render_drawio
+from .support import MAX_MEMBER_BYTES as SUPPORT_MAX_MEMBER
+from .support import MAX_TOTAL_BYTES as SUPPORT_MAX_TOTAL
 from .support import SupportFileError, load_support_file
 from .svg_post import inline_svg_images
 from .theme import THEMES, get_theme
@@ -56,6 +58,28 @@ ALL_FORMATS = ("svg", "pdf", "png", "dot", "drawio")
 # Below this many clients a view is not wide enough to need staggering, and
 # unflatten instead chains sibling APs into a pointless diagonal cascade.
 STAGGER_MIN_CLIENTS = 15
+
+
+def _bytes_arg(raw: str) -> int:
+    """Parse a size like `64M`, `512K` or a plain byte count.
+
+    Bytes are an awkward thing to type accurately, and a limit that is painful
+    to raise is a limit people work around instead.
+    """
+    text = raw.strip().upper()
+    units = {"K": 1024, "M": 1024**2, "G": 1024**3}
+    multiplier = units.get(text[-1:], 1)
+    if multiplier != 1:
+        text = text[:-1]
+    try:
+        value = int(float(text) * multiplier)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{raw!r} is not a size. Use a number, optionally with K, M or G."
+        ) from None
+    if value <= 0:
+        raise argparse.ArgumentTypeError("Size must be positive.")
+    return value
 
 
 def _safe_name(text: str) -> str:
@@ -138,12 +162,32 @@ def _fetch_from_support_file(args: argparse.Namespace) -> int:
 
     _obtain_icon_font(args, store)
 
-    snapshot = load_support_file(args.support_file, args.support_site, fingerprint_db)
+    snapshot = load_support_file(
+        args.support_file,
+        args.support_site,
+        fingerprint_db,
+        max_member=args.support_max_member,
+        max_total=args.support_max_total,
+    )
     snapshot.write(args.cache_dir)
     log.info("Wrote snapshot to %s/", args.cache_dir)
     for name, payload in sorted(snapshot.payloads.items()):
         log.info("  %-14s %s", name, _describe(payload))
     return 0
+
+
+def _restrict(directory: Path) -> None:
+    """Make a directory we created private, best effort.
+
+    Only applied to directories this tool creates. Somebody who deliberately
+    points `--out-dir` at a shared location has made a choice, and silently
+    tightening an existing directory would break it.
+    """
+    try:
+        directory.chmod(0o700)
+    except OSError:
+        # A mount without POSIX modes, or somebody else's directory. Not fatal.
+        log.debug("Could not restrict %s", directory, exc_info=True)
 
 
 class OutputExistsError(RuntimeError):
@@ -184,6 +228,12 @@ def _write_output(path: Path, data: bytes | str, *, force: bool, guard: bool) ->
     place rather than a truncated one. `os.replace` is atomic within a
     filesystem, and the temporary is created in the destination directory to
     guarantee that.
+
+    Mode is set on the temporary *before* the rename, so the file is never
+    briefly readable by others. Renders are as sensitive as the snapshot they
+    came from: labels carry hostnames, addresses, VLAN names and the WAN
+    address, and the SVG holds all of it as selectable text. `0600` restricts
+    who can read it on this machine; it does not stop you sending it to anyone.
     """
     if guard and not force and path.exists() and not _is_ours(path):
         raise OutputExistsError(
@@ -202,6 +252,8 @@ def _write_output(path: Path, data: bytes | str, *, force: bool, guard: bool) ->
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
+        # Before the rename, so there is no window at a laxer mode.
+        os.chmod(tmp, 0o600)
         os.replace(tmp, path)
         tmp = None
     finally:
@@ -392,6 +444,7 @@ def _write_outputs(
     force: bool = False,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+    _restrict(out_dir)
 
     # Every icon this render used, and nothing else, may be embedded.
     icon_paths = {asset.path for asset in icons.values() if asset.path is not None}
@@ -458,6 +511,10 @@ def cmd_render(args: argparse.Namespace) -> int:
         result = apply_overrides(topo, overrides)
         topo = result.topology
         override_icons = result.icons
+        # Names of hidden nodes are useful confirmation normally, and a leak
+        # under --obfuscate: the diagram would be scrubbed while the terminal
+        # or CI log it was produced in still carried real labels.
+        hidden = f" ({', '.join(result.hidden)})" if result.hidden and not args.obfuscate else ""
         log.info(
             "Overrides from %s: %d link(s), %d nested, %d renamed, %d hidden%s",
             path,
@@ -465,7 +522,7 @@ def cmd_render(args: argparse.Namespace) -> int:
             result.hosted_applied,
             result.renamed,
             len(result.hidden),
-            f" ({', '.join(result.hidden)})" if result.hidden else "",
+            hidden,
         )
 
     icons: dict[str, IconAsset] = {}
@@ -590,6 +647,23 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="Which site to map from a multi-site support file "
         "(default: the one with the most devices)",
+    )
+    parser.add_argument(
+        "--support-max-member",
+        type=_bytes_arg,
+        default=SUPPORT_MAX_MEMBER,
+        metavar="SIZE",
+        help=f"Largest single file to decode from a support archive (default "
+        f"{SUPPORT_MAX_MEMBER // (1024 * 1024)}M). Accepts a plain number or a "
+        "K/M/G suffix. Raise it if a large site is refused.",
+    )
+    parser.add_argument(
+        "--support-max-total",
+        type=_bytes_arg,
+        default=SUPPORT_MAX_TOTAL,
+        metavar="SIZE",
+        help=f"Total to decode from a support archive across all files (default "
+        f"{SUPPORT_MAX_TOTAL // (1024 * 1024)}M).",
     )
     parser.add_argument(
         "--fetch-fingerprints",

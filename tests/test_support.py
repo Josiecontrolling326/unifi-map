@@ -556,22 +556,23 @@ class TestRefusals:
         with pytest.raises(SupportFileError, match=r"devices\.json"):
             load_support_file(path)
 
-    def test_an_oversized_member_is_refused_rather_than_read_into_memory(
-        self, support_archive, monkeypatch
-    ):
+    def test_an_oversized_member_is_refused_rather_than_read_into_memory(self, support_archive):
         # A support file is something a stranger sends you, so a member must not
-        # be decompressed on trust. The limit is lowered rather than a quarter
-        # gigabyte of padding built, but it is the same guard.
-        monkeypatch.setattr("unifi_map.support.MAX_MEMBER_BYTES", 32)
-        with pytest.raises(SupportFileError, match="Refusing to read"):
-            load_support_file(support_archive)
+        # be decompressed on trust.
+        with pytest.raises(SupportFileError, match="--support-max-member"):
+            load_support_file(support_archive, max_member=32)
 
-    def test_the_total_across_members_is_capped_too(self, support_archive, monkeypatch):
+    def test_the_total_across_members_is_capped_too(self, support_archive):
         # Each member can be under the individual limit while the archive as a
         # whole is not.
-        monkeypatch.setattr("unifi_map.support.MAX_TOTAL_BYTES", 64)
-        with pytest.raises(SupportFileError, match="in total"):
-            load_support_file(support_archive)
+        with pytest.raises(SupportFileError, match="--support-max-total"):
+            load_support_file(support_archive, max_member=10_000, max_total=64)
+
+    def test_the_caps_are_raisable_rather_than_fatal(self, support_archive):
+        # The point of making them arguments: a genuinely large site must have a
+        # way through, or people work around the limit instead of raising it.
+        snapshot = load_support_file(support_archive, max_member=10_000, max_total=100_000)
+        assert snapshot.get("device")
 
     def test_a_symlink_member_is_skipped(self, tmp_path):
         path = tmp_path / "linked.tgz"

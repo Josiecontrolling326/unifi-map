@@ -11,9 +11,12 @@ with ``/proxy/network``.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -102,12 +105,35 @@ class Snapshot:
         return self.payloads.get(name)
 
     def write(self, cache_dir: Path) -> None:
+        """Write the snapshot, never leaving a file readable by others.
+
+        These hold a MAC, hostname and IP inventory of an entire network, so
+        mode is set on a temporary before the rename rather than on the target
+        afterwards. Chmod-after-write leaves a window at the umask default, and
+        an already-present file keeps its old permissions for the whole write.
+        """
         cache_dir.mkdir(parents=True, exist_ok=True)
+        # A mount without POSIX modes is not a reason to refuse to write.
+        with contextlib.suppress(OSError):
+            cache_dir.chmod(0o700)
         for name, payload in self.payloads.items():
             path = cache_dir / f"{name}.json"
-            path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-            # These files hold a MAC/hostname/IP inventory of the whole house.
-            path.chmod(0o600)
+            body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+            tmp = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=cache_dir, prefix=f".{name}.", suffix=".tmp", delete=False
+                ) as handle:
+                    tmp = Path(handle.name)
+                    handle.write(body)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, path)
+                tmp = None
+            finally:
+                if tmp is not None and tmp.exists():
+                    tmp.unlink(missing_ok=True)
 
     @classmethod
     def read(cls, cache_dir: Path) -> Snapshot:

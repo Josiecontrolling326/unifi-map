@@ -246,31 +246,31 @@ Restored after being deleted by accident in 9b18a1a, where a section replacement
 spanned two headings and took this with it. If you replace a range between
 headings, check what was in between.
 
-### Gaps worth considering, in rough order of value
+### Gaps worth considering
 
 - **Provenance and confidence.** `Edge.asserted` marks an override-supplied link
   and nothing else distinguishes observed from inferred. A client placed from
   the v2 topology graph, one placed from `stat/sta`, and one whose fingerprint
   was recovered from its name are all drawn identically and with equal apparent
-  authority. The tool already refuses to invent; it does not yet say how sure it
-  is about what it did draw.
+  authority. The tool refuses to invent; it does not yet say how sure it is.
 
 - **No reconciliation report.** Counts are logged and unplaceable clients get a
   visible placeholder, but nothing enumerates what did not match: clients with
-  no address, devices with no artwork, ambiguous name matches that were refused,
-  networks referenced but not defined. A `--report` summarising those would turn
-  "the map looks plausible" into something checkable, and would have caught at
-  least two of the wrong conclusions recorded in this file.
+  no address, devices with no artwork, ambiguous name matches that were refused.
+  A `--report` would turn "the map looks plausible" into something checkable,
+  and would have caught at least two of the wrong conclusions recorded here.
 
-- **Randomised client MACs are not a concept here.** Every join is on MAC, and a
-  phone rotating its MAC appears as a new client with no history and no relation
-  to the old one. Worth at least documenting, since it explains apparent
-  duplicates on any modern network.
+- **Randomised client MACs are not a concept here.** Every join is on MAC, so a
+  phone rotating its MAC appears as a new client with no relation to the old
+  one. Worth documenting at minimum, since it explains apparent duplicates.
 
 - **Nothing has been profiled on a large site.** The joins are dictionary-based
-  and probably fine, but `sysid_for_name()` scans the catalogue per candidate
-  and no one has looked at a site with thousands of clients. Check before
-  claiming it scales.
+  and probably fine, but `sysid_for_name()` scans the catalogue per candidate.
+  Check before claiming it scales.
+
+- **No dependency lock file.** Deliberate for now: hashed constraints are real
+  ongoing maintenance for a dev-only benefit, and Dependabot plus the advisory
+  job cover staying current. Revisit if this ever ships releases people install.
 
 - **Draw our own device icons instead of falling back to Graphviz shapes.**
   `KIND_SHAPE` currently maps each role to a primitive: `doubleoctagon` for a

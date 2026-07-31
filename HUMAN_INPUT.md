@@ -28,7 +28,24 @@ pattern, repeatedly, was an architect catching a development team going wrong:
 not choosing between options I had laid out, but rejecting the frame I was
 working in.
 
-The recurring failures he caught were mine, and they were of a kind:
+Two distinct things happen. The first is that he refuses a false choice I have
+set up.
+
+I had capped support-file members at 256 MiB and then reasoned myself into a
+binary: leave it, or lower it and risk refusing a legitimately large site. He
+said make it tunable with sane defaults. That is an ordinary engineering move, I
+did not reach for it, and once implemented it looks like the obvious design,
+which is exactly why this category disappears from any record. It leaves no
+trace: no bug was fixed, no correction is visible in the diff, the code simply
+ends up better than I would have made it.
+
+The same shape recurs. Requiring `--force` on every render would have been
+intolerable, so the guard only refuses files we did not write. Refusing all
+redirects would have broken reverse proxies, so the credential is stripped
+instead. Both of those I found on my own only *after* the pattern had been
+demonstrated to me several times.
+
+The second is that he catches me going wrong, and those failures were of a kind:
 
 - **Violating a stated invariant for local convenience.** Support-file mode
   exists so the tool need not touch a console. I made client artwork depend on

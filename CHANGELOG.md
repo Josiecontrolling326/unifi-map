@@ -33,6 +33,20 @@ Refactors, docs and tests alone do not need a release at all.
 
 ### Changed
 
+- `--obfuscate` now covers ordinary log output as well as the diagram. Hidden
+  node names were logged in full, so a scrubbed render could sit beside a
+  terminal or CI log naming real devices. `-v` still names them, which is what
+  it is for, and the README says so.
+- Support-file size limits are tunable with `--support-max-member` and
+  `--support-max-total`, and the defaults drop from 256M/512M to 64M/128M. The
+  old values were large enough to be no real limit; the new ones are about 160x
+  the largest member observed in a real archive, and a genuinely large site can
+  raise them rather than being refused.
+- Snapshots and rendered output are created mode `0600`, with the mode set
+  before the file is put in place rather than after, and directories this tool
+  creates are `0700`. Snapshots were previously chmodded after writing, leaving
+  a window at whatever the umask allowed.
+
 - `SECURITY.md` no longer says "Nothing is uploaded anywhere" about artwork
   fetching. No body is sent, but the URLs carry `sysid`, `dev_id` and `asn`,
   which together disclose a partial hardware inventory to Ubiquiti's CDN. The
