@@ -627,6 +627,26 @@ the remote explicitly every time.
 - Non-regular members are skipped, nothing is extracted to disk, members and
   the total are size-capped and tunable, and the entry count is capped.
 
+## CI and dependency updates
+
+- **Every action is pinned to a commit SHA**, with the version in a trailing
+  comment. A tag is mutable, so whoever controls the action decides what runs.
+  Dependabot advances the pins and preserves the SHA form; it does not revert
+  them to tags.
+- **Dependabot's pull requests merge themselves once the required checks pass**,
+  via `.github/workflows/dependabot-auto-merge.yml`. Major bumps are excluded
+  and stay manual, because this repository tracks `requests` and `Pillow`, where
+  a major can change behaviour a passing suite will not reveal.
+- **That workflow is inert without two repository settings**: "Allow auto-merge"
+  under Settings > General, and required status checks on `main`. `--auto` only
+  queues a merge behind branch protection, so with no required checks it would
+  merge immediately, turning the file into a way to bypass review rather than a
+  way to automate it. The required checks are the display names, not the job
+  ids: `Python 3.11`, `Python 3.12`, `Python 3.13`, `Repository hygiene`.
+- `Dependency advisories` is deliberately **not** required. It is
+  `continue-on-error`, so requiring it would mean nothing, and if it ever gates
+  properly a new CVE upstream would block every unrelated pull request.
+
 ## Data hygiene
 
 `cache/` and `out/` are gitignored; snapshots are written `0600`. A snapshot is a

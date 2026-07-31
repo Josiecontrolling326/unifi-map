@@ -53,7 +53,8 @@ Refactors, docs and tests alone do not need a release at all.
   section now says what is actually revealed and what is not.
 - CI actions are pinned to commit SHAs rather than mutable tags, Dependabot
   keeps them and the Python dependencies moving, and a non-gating `pip-audit`
-  job reports advisories.
+  job reports advisories. Dependabot's own pull requests merge themselves once
+  the required checks pass, except major version bumps, which stay manual.
 
 ### Fixed
 
