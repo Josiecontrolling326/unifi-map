@@ -45,18 +45,24 @@ The recurring failures he caught were mine, and they were of a kind:
 None of those are discovered by testing. They are caught by someone holding the
 purpose of the thing in their head while I hold the implementation.
 
-## The problem, and the shape of the answer
+## The problem, and the decision that made it solvable
 
 The UniFi web UI has no topology export, and screenshots do not work: that view
 is a fixed viewport wrapping a pan and zoom canvas, so a full-page capture
 returns only what is on screen, and zooming out far enough to fit the network is
-what makes the labels unreadable. He wanted a large zoomable image, or an export
-into a diagramming tool.
+what makes the labels unreadable.
+
+**Reading the console's JSON API instead of scraping its interface was his.**
+That is the decision the whole project rests on. Everything else is downstream
+of not treating this as a screenshot problem.
+
+Then, in roughly the order they were decided:
 
 - **Every client, not just infrastructure.** Offered as a choice, taken
   deliberately, and it is why the map is a client tree rather than a rack
   diagram.
-- **draw.io as a real target**, not merely an image.
+- **The output formats**, listed by him, including draw.io as a real editable
+  target rather than another image.
 - My first version "looked like it was done for a university paper". He wanted
   **the exact icons UniFi itself uses, not cards**, which is the origin of the
   entire artwork pipeline.
@@ -68,6 +74,46 @@ into a diagramming tool.
 - For the Internet node where a provider has no brand mark: a **cloud**, not a
   bare Graphviz polygon, and legible in both themes. He sent a reference SVG; it
   turned out to be CC BY, so we drew our own from the same construction idea.
+
+### What I chose, and under what direction
+
+Worth separating, because a reader could otherwise credit him with the whole
+architecture or me with the whole thing, and neither is true.
+
+Mine, accepted without objection rather than explicitly approved: **Graphviz as
+the layout engine**, the **`Topology` intermediate model** (which I reached for
+after schema quirks kept surfacing in the renderers), the **`fetch`/`render`
+terminology**, **vector-first ordering** of the formats he had listed, the
+**Python version and tooling**, and **tests that never touch the network**.
+
+But those were made inside standards he set, and the standards did more work
+than any individual choice:
+
+- **"A big boy project. Do things the right way."** That is where the packaging,
+  the linting, the test suite and the documented flags come from. Left alone I
+  would have produced a script that worked.
+- **Point it towards automated testing.** I had written smoke tests unprompted;
+  he made it a direction rather than a nicety, which is why there is now a suite
+  and CI rather than a few checks.
+- **Well documented flags, well documented code.** The rationale comments
+  throughout, which are unusual in volume, exist because he asked for them.
+
+## Principles he set, which the code keeps having to obey
+
+- **"Do not invent things."** Given as a general direction at a point where I
+  was visibly tempted to. It is now three separate rules: a product match is
+  refused unless exactly one catalogue entry fits, a client with no reported
+  uplink is anchored to an explicit placeholder rather than a plausible guessed
+  parent, and a fingerprint is refused rather than approximated. Every one of
+  those would have been a quiet wrong answer instead.
+- **Errors must actually help, not be confusing walls of text.** A standing
+  instruction, and the reason `describe_network_error()` exists. Worth noting
+  that when I finally rewrote the transport failures, that was executing a
+  direction he had given long before, not a new idea.
+- **Colour is never the only channel.** Okabe-Ito palette, every distinction
+  also carried by shape or artwork. He describes this as merely being
+  colourblind himself, which undersells it: it is a requirement I would not have
+  volunteered, and it made the output better for people who will never know why.
 
 ## Artwork and licensing
 
@@ -163,6 +209,27 @@ supplied by the user, never vendored.
   final push" approved the push rather than the work.
 - **His internal domain, in the first draft of this file**, in a document about
   following his instruction not to publish it.
+- **I wanted TLS verification off by default.** He refused. It defaults to
+  `True`, with `false` documented as the thing you set deliberately when
+  connecting to a bare IP whose certificate is self-signed. Shipping a tool that
+  silently skips certificate verification for everyone, to spare some users one
+  line of configuration, is the kind of decision that looks pragmatic and is
+  not.
+
+## What this record is missing
+
+Two categories, both structural.
+
+**The interruptions.** He stopped me mid-mistake by hand many times. Those leave
+no trace I can recover: an interruption is not a message I can recall, it simply
+means the thing I was about to do did not happen. By his account this is the
+largest category of his input, and none of it is in this file.
+
+**The squashed history.** Early commit messages carried his corrective direction,
+and everything before the first surviving commit was collapsed into one to strip
+identifying information. That was the right call for privacy and it cost the
+record. Worth knowing before squashing a history again: the messages are
+evidence, not just labels.
 
 ## Standing instructions
 
