@@ -590,6 +590,30 @@ privacy design working, not a data gap.
   good file rather than a truncated one. The temporary must be in the same
   directory for `os.replace` to be atomic.
 
+## Publishing: staging first, then GitHub, then the mirror
+
+Three remotes, and the order matters.
+
+| Remote | Where | What it is |
+| --- | --- | --- |
+| `validate` | `bhomelan/unifi-map-validate` on the local GitLab | Staging. Push here first. |
+| `origin` | `gitkodak/unifi-map` on GitHub | Public, the source of truth. |
+| `gitlab` | `bhomelan/unifi-map` on the local GitLab | A mirror of GitHub, written by `admin-scripts/scripts/mirror-github-to-gitlab.sh`. |
+
+**Push to `validate` first and stop.** It exists so rendered Markdown, images
+and the README's structure can be read as they will actually appear, before any
+of it is public. Nothing goes to `origin` until that review happens and is
+asked for; see the standing instruction about pushing only when asked, which
+this makes easier to honour rather than replacing.
+
+Then, on request: `git push origin main`, then run the mirror script. The
+mirror force-pushes GitHub onto `bhomelan/unifi-map` and does not touch
+`unifi-map-validate`, so staging can sit ahead of GitHub safely.
+
+Do not use `git push -u` on `validate`. It repoints the branch's upstream, and a
+later bare `git push` then sends work meant for review straight past it. Name
+the remote explicitly every time.
+
 ## Data hygiene
 
 `cache/` and `out/` are gitignored; snapshots are written `0600`. A snapshot is a
