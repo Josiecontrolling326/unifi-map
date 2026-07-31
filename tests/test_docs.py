@@ -15,7 +15,14 @@ import pytest
 
 DOCS = [
     Path(__file__).resolve().parents[1] / name
-    for name in ("README.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md")
+    for name in (
+        "README.md",
+        "SECURITY.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+        "AI_DISCLOSURE.md",
+        "HUMAN_INPUT.md",
+    )
 ]
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$", re.M)

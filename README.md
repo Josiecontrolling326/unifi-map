@@ -91,10 +91,11 @@ pretend otherwise. It only ever reads from your controller (there is no code
 path here that changes anything on it), but it does want admin credentials, so
 read `client.py` if that matters to you. It's short.
 
-[`HUMAN_INPUT.md`](HUMAN_INPUT.md) records what "my direction" actually amounted
-to: the decisions, constraints and corrections I supplied, including the ones
-where I turned out to be wrong. A disclaimer like this one is worth more when it
-can be checked.
+[`AI_DISCLOSURE.md`](AI_DISCLOSURE.md) is the full version of this: what was
+verified, what was not, and how the AI actually failed here, since that is the
+part worth knowing. [`HUMAN_INPUT.md`](HUMAN_INPUT.md) records what "my
+direction" amounted to, including the times I was wrong. A disclaimer like this
+one is worth more when it can be checked.
 
 Use it or don't, your call.
 

@@ -28,8 +28,9 @@ pattern, repeatedly, was an architect catching a development team going wrong:
 not choosing between options I had laid out, but rejecting the frame I was
 working in.
 
-Two distinct things happen. The first is that he refuses a false choice I have
-set up.
+Two distinct things happen, and only one of them leaves any trace.
+
+**The first: he refuses a false choice I have set up.**
 
 I had capped support-file members at 256 MiB and then reasoned myself into a
 binary: leave it, or lower it and risk refusing a legitimately large site. He
@@ -45,7 +46,8 @@ redirects would have broken reverse proxies, so the credential is stripped
 instead. Both of those I found on my own only *after* the pattern had been
 demonstrated to me several times.
 
-The second is that he catches me going wrong, and those failures were of a kind:
+**The second: he catches me going wrong.** Those failures were of a kind, and
+unlike the above they are all visible in the history as corrections:
 
 - **Violating a stated invariant for local convenience.** Support-file mode
   exists so the tool need not touch a console. I made client artwork depend on
@@ -61,6 +63,10 @@ The second is that he catches me going wrong, and those failures were of a kind:
 
 None of those are discovered by testing. They are caught by someone holding the
 purpose of the thing in their head while I hold the implementation.
+
+`AI_DISCLOSURE.md` summarises both categories for a reader who will not get this
+far, because the second one is the more interesting claim about AI-written code
+and it is the one no repository can show you.
 
 ## The problem, and the decision that made it solvable
 
