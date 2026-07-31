@@ -56,3 +56,54 @@ def test_the_feature_list_is_the_first_section():
     index, first = headings[0]
     assert first == "## Features", f"first section is {first!r}, not the feature list"
     assert index < 60, f"feature list has drifted to line {index}; it should stay above the fold"
+
+
+# `--help` and `--version` are self-describing; `--formats` and `--verbose` are
+# long forms of `-f` and `-v`, both of which the README uses.
+_FLAGS_NOT_NEEDING_PROSE = {"--help", "--version", "--formats", "--verbose"}
+
+
+def test_every_flag_is_mentioned_in_the_readme():
+    """A flag nobody documents is a flag nobody finds.
+
+    Three flags were added in one sitting and none reached the README until a
+    drift audit went looking, which is exactly the kind of thing that should not
+    depend on somebody remembering.
+    """
+    import argparse
+
+    from unifi_map.cli import build_parser
+
+    flags: set[str] = set()
+
+    def collect(parser: argparse.ArgumentParser) -> None:
+        for action in parser._actions:
+            flags.update(o for o in action.option_strings if o.startswith("--"))
+            if isinstance(action, argparse._SubParsersAction):
+                for sub in action.choices.values():
+                    collect(sub)
+
+    collect(build_parser())
+    readme = (DOCS[0]).read_text(encoding="utf-8")
+    missing = sorted(f for f in flags - _FLAGS_NOT_NEEDING_PROSE if f not in readme)
+    assert not missing, f"flags absent from README.md: {missing}"
+
+
+def test_the_advertised_test_count_is_true(request):
+    """`AI_DISCLOSURE.md` cites a number of tests. Numbers in prose go stale.
+
+    It drifted within an hour of being written, which is the argument for
+    checking it rather than trusting it. Skipped when the suite is filtered,
+    since the collected count is then meaningless.
+    """
+    if request.config.option.keyword or request.config.option.markexpr:
+        pytest.skip("suite is filtered; collected count is not the total")
+
+    text = (Path(__file__).resolve().parents[1] / "AI_DISCLOSURE.md").read_text(encoding="utf-8")
+    match = re.search(r"\*\*(\d+) automated tests\*\*", text)
+    assert match, "AI_DISCLOSURE.md no longer states a test count"
+    claimed = int(match.group(1))
+    actual = request.session.testscollected
+    assert claimed == actual, (
+        f"AI_DISCLOSURE.md claims {claimed} tests; the suite collects {actual}. Update the number."
+    )

@@ -131,13 +131,20 @@ your controller, and it makes ten GET requests and nothing else.
 This is the part people underestimate.
 
 - **`cache/`** holds raw controller responses: a MAC address, hostname and IP
-  inventory of every active device on your network, plus your WAN address. Files
-  are written mode `0600` and the directory is gitignored. Do not commit one, do
-  not attach one to an issue, and do not paste one into a chat window.
+  inventory of every active device on your network, plus your WAN address. Do
+  not commit one, do not attach one to an issue, and do not paste one into a
+  chat window.
 - **`out/`** holds the rendered diagrams. These are not anonymous either. Labels
   carry hostnames, IP addresses, your VLAN names and your public WAN address, and
   the SVG has all of it as selectable text. Think before sharing a render of a
   real network.
+
+Both are gitignored. Files in both are created mode `0600`, and directories this
+tool creates are `0700`. The mode is set on a temporary file *before* it is moved
+into place, rather than applied afterwards, so there is no moment at which a
+fresh file is readable by other local accounts. That restricts who can read it on
+this machine; it does not stop you sending it to anyone, which remains the
+likelier way for one of these to escape.
 
 If you want to show someone what the output looks like, use the shipped demo
 dataset (`make demo`). It is entirely synthetic.

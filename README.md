@@ -400,6 +400,19 @@ so; pass `--support-site NAME` to choose another.
 Only seven files are ever read out of the archive, as a stream. It is never
 unpacked, which matters because a support file also contains extensive logs.
 
+Those seven are size-capped, since the whole point is that somebody else can
+send you one. The defaults are 64M for any single file and 128M in total, sized
+against a real archive whose largest relevant member was 400K. A very large site
+could legitimately exceed them, so they are adjustable rather than fixed:
+
+```bash
+unifi-map all --support-file support-XXXX.tgz \
+  --support-max-member 256M --support-max-total 512M
+```
+
+Both accept a plain byte count or a `K`, `M` or `G` suffix, and the error you
+get when a limit is hit names the flag to raise.
+
 ## Usage
 
 ```bash
@@ -459,6 +472,19 @@ device would drown the output. `-v` is where the detail lives.
 
 It also raises the detail on everything else, so it is the first thing to
 attach to a bug report. Redact addresses and hostnames before pasting.
+
+### Overwriting: `--force`
+
+Rendering refuses to replace a `.dot` or `.drawio` it did not write, so a
+diagram you have opened and rearranged is left alone rather than silently
+replaced. Re-rendering output it recognises as its own needs no flag.
+
+```bash
+unifi-map render --force        # replace it anyway
+```
+
+PNG, PDF and SVG are not guarded. Nothing hand-authors one at exactly that path,
+and there is nowhere convenient in them to record that this tool produced it.
 
 ### Style options
 
