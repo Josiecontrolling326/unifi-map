@@ -33,6 +33,11 @@ Refactors, docs and tests alone do not need a release at all.
 
 ### Fixed
 
+- An API key is no longer visible to Graphviz or any other child process. It is
+  never written into the process environment, and the environment passed to
+  child processes has the key variables removed in case one was exported. Both
+  Graphviz executables are now run by resolved absolute path rather than by
+  name.
 - draw.io labels are HTML-escaped. Every cell sets `html=1`, and draw.io decodes
   the XML attribute and then parses the result as HTML, so a device named
   `<img src=x onerror=...>` previously arrived as an element rather than as

@@ -57,7 +57,15 @@ controller JSON.
    snapshot cache so `--cache-dir examples/demo` doesn't get downloads written
    into it.
 5. **`layout.py`** is the only module that shells out to Graphviz (`dot`,
-   `unflatten`).
+   `unflatten`). Both are executed by the absolute path `shutil.which` resolved,
+   not by bare name, so what runs is what was found rather than whatever `PATH`
+   resolves to at exec time. Both get `_child_env()`, the parent environment
+   with any API key removed.
+
+   That pairs with `config.py` never writing a credential into `os.environ`:
+   `read_dotenv()` returns a mapping and `load_config()` merges it under the
+   real environment. Keep it that way. An API key in the process environment is
+   inherited by every child, and Graphviz comes off `PATH`.
 6. **`render_dot.py` / `render_drawio.py` / `svg_post.py`** are pure functions
    from `Topology` to text. `theme.py` holds every colour, shape and label.
 

@@ -8,6 +8,7 @@ pile of unpositioned shapes on the canvas for you to arrange by hand.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -42,6 +43,17 @@ class Layout:
     height: float
 
 
+# Names a credential can arrive under. Stripped from any child's environment:
+# `config.py` keeps a key read from a file out of `os.environ` entirely, but a
+# user is free to export one, and Graphviz is resolved from PATH.
+_CREDENTIAL_VARS = ("UNIFI_API_KEY", "UDM_API_KEY")
+
+
+def _child_env() -> dict[str, str]:
+    """The parent environment with any API key removed."""
+    return {k: v for k, v in os.environ.items() if k not in _CREDENTIAL_VARS}
+
+
 def require_dot() -> str:
     path = shutil.which("dot")
     if not path:
@@ -53,10 +65,16 @@ def require_dot() -> str:
 
 def run_dot(dot_source: str, output_format: str, engine: str = "dot") -> bytes:
     """Render *dot_source*, returning raw bytes of *output_format*."""
-    require_dot()
+    # Resolved once and executed by absolute path. Passing a bare name would
+    # re-resolve it through PATH at exec time, so whatever `dot` resolves to now
+    # is what actually runs.
+    executable = shutil.which(engine) if engine != "dot" else require_dot()
+    if not executable:
+        raise GraphvizMissing(f"Layout engine `{engine}` not found on PATH.")
     try:
         result = subprocess.run(
-            [engine, f"-T{output_format}"],
+            [executable, f"-T{output_format}"],
+            env=_child_env(),
             input=dot_source.encode("utf-8"),
             capture_output=True,
             timeout=300,
@@ -86,12 +104,14 @@ def stagger(dot_source: str, depth: int) -> str:
     """
     if depth <= 0:
         return dot_source
-    if shutil.which("unflatten") is None:
+    executable = shutil.which("unflatten")
+    if executable is None:
         log.warning("`unflatten` not found; skipping stagger. Diagram may be very wide.")
         return dot_source
     try:
         result = subprocess.run(
-            ["unflatten", "-f", "-l", str(depth)],
+            [executable, "-f", "-l", str(depth)],
+            env=_child_env(),
             input=dot_source.encode("utf-8"),
             capture_output=True,
             timeout=120,

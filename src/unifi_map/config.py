@@ -42,10 +42,10 @@ def default_env_files() -> list[Path]:
     return candidates
 
 
-def _first(keys: tuple[str, ...]) -> str | None:
+def _first(keys: tuple[str, ...], values: dict[str, str]) -> str | None:
     """First non-empty value among *keys*, so either naming scheme works."""
     for key in keys:
-        value = os.environ.get(key)
+        value = values.get(key)
         if value:
             return value
     return None
@@ -106,20 +106,26 @@ def _warn_if_readable_by_others(path: Path) -> None:
         )
 
 
-def load_dotenv(path: Path) -> None:
-    """Load KEY=VALUE lines from *path* into os.environ without overriding
-    variables already set in the real environment."""
+def read_dotenv(path: Path) -> dict[str, str]:
+    """Parse KEY=VALUE lines from *path*.
+
+    Deliberately returns a mapping rather than writing into `os.environ`. An
+    API key placed in the process environment is inherited by every child
+    process this tool starts, which includes Graphviz, and Graphviz is resolved
+    from `PATH`. Keeping the key out of the environment means a compromised or
+    shadowed `dot` has nothing to read.
+    """
+    values: dict[str, str] = {}
     if not path.is_file():
-        return
+        return values
     _warn_if_readable_by_others(path)
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
 
 
 def load_config(env_file: Path | None = None) -> ExporterConfig:
@@ -129,13 +135,19 @@ def load_config(env_file: Path | None = None) -> ExporterConfig:
     can override a credential without editing any file.
     """
     searched: list[Path] = [env_file] if env_file is not None else default_env_files()
+    from_file: dict[str, str] = {}
     for candidate in searched:
         if candidate.is_file():
-            load_dotenv(candidate)
+            from_file = read_dotenv(candidate)
             break
 
-    host = _first(_ALIASES["host"])
-    api_key = _first(_ALIASES["api_key"])
+    # Real environment variables win over file contents, so a one-off run can
+    # override a credential without editing anything. Merged here rather than
+    # pushed into os.environ, so the key never becomes inheritable.
+    values = {**from_file, **{k: v for k, v in os.environ.items() if v}}
+
+    host = _first(_ALIASES["host"], values)
+    api_key = _first(_ALIASES["api_key"], values)
 
     locations = ", ".join(str(p) for p in searched)
     missing = [
@@ -159,6 +171,6 @@ def load_config(env_file: Path | None = None) -> ExporterConfig:
     return ExporterConfig(
         host=host,
         api_key=api_key,
-        site=_first(_ALIASES["site"]) or "default",
-        verify_tls=_parse_verify(_first(_ALIASES["verify"]) or "true"),
+        site=_first(_ALIASES["site"], values) or "default",
+        verify_tls=_parse_verify(_first(_ALIASES["verify"], values) or "true"),
     )

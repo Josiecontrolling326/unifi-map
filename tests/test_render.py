@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 
 import pytest
 
@@ -477,21 +478,73 @@ class TestCredentialFilePermissions:
     """
 
     def test_a_world_readable_credential_file_is_flagged(self, tmp_path, caplog):
-        from unifi_map.config import load_dotenv
+        from unifi_map.config import read_dotenv
 
         env = tmp_path / "env"
         env.write_text("UNIFI_HOST=example.com\n", encoding="utf-8")
         env.chmod(0o644)
         with caplog.at_level("WARNING"):
-            load_dotenv(env)
+            read_dotenv(env)
         assert "readable by other users" in caplog.text
 
     def test_a_private_credential_file_is_silent(self, tmp_path, caplog):
-        from unifi_map.config import load_dotenv
+        from unifi_map.config import read_dotenv
 
         env = tmp_path / "env"
         env.write_text("UNIFI_HOST=example.com\n", encoding="utf-8")
         env.chmod(0o600)
         with caplog.at_level("WARNING"):
-            load_dotenv(env)
+            read_dotenv(env)
         assert "readable by other users" not in caplog.text
+
+
+class TestCredentialsDoNotReachChildProcesses:
+    """Graphviz is resolved from PATH and inherits whatever we hand it.
+
+    Two defences, tested separately: a key read from a credential file never
+    enters `os.environ` at all, and a key the user exported themselves is
+    stripped from the environment passed to any child.
+    """
+
+    def test_a_key_from_a_file_never_enters_the_environment(self, tmp_path, monkeypatch):
+        from unifi_map.config import load_config
+
+        monkeypatch.delenv("UNIFI_API_KEY", raising=False)
+        monkeypatch.delenv("UDM_API_KEY", raising=False)
+        monkeypatch.delenv("UNIFI_HOST", raising=False)
+        monkeypatch.delenv("UDM_HOST", raising=False)
+        env = tmp_path / "env"
+        env.write_text("UNIFI_HOST=console.example.com\nUNIFI_API_KEY=super-secret\n")
+        env.chmod(0o600)
+
+        config = load_config(env)
+        assert config.api_key == "super-secret"
+        # Read, used, and not left anywhere a subprocess could find it.
+        assert "UNIFI_API_KEY" not in os.environ
+
+    def test_an_exported_key_is_stripped_from_child_environments(self, monkeypatch):
+        from unifi_map.layout import _child_env
+
+        monkeypatch.setenv("UNIFI_API_KEY", "super-secret")
+        monkeypatch.setenv("UDM_API_KEY", "also-secret")
+        monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+
+        env = _child_env()
+        assert "UNIFI_API_KEY" not in env
+        assert "UDM_API_KEY" not in env
+        # Still a usable environment, not an empty one.
+        assert "PATH" in env
+
+    def test_graphviz_really_does_not_see_the_key(self, monkeypatch, tmp_path):
+        """End to end: run a stand-in for `dot` that reports its environment."""
+        import subprocess
+
+        from unifi_map.layout import _child_env
+
+        monkeypatch.setenv("UNIFI_API_KEY", "super-secret")
+        probe = tmp_path / "probe.py"
+        probe.write_text("import os,sys; sys.stdout.write(os.environ.get('UNIFI_API_KEY',''))")
+        result = subprocess.run(
+            [sys.executable, str(probe)], capture_output=True, env=_child_env(), check=False
+        )
+        assert result.stdout == b""
