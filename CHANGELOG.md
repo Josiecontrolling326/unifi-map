@@ -29,7 +29,28 @@ a major one later.
 
 Refactors, docs and tests alone do not need a release at all.
 
-## Unreleased
+## 0.3.0 - 2026-08-01
+
+### Added
+
+- `[[device]]` in an overrides file declares something no source reports: an
+  unmanaged switch, a non-UniFi access point, or gear that was powered off when
+  you ran the fetch. Optionally with an address, a model, your own artwork, and
+  a parent and port. Declared devices can be referenced by other overrides and
+  by each other.
+
+  They are drawn as claims rather than observations, with a dotted outline and
+  a dotted link, so a reader can tell which parts of a diagram the controller
+  reported and which parts somebody typed in.
+
+- The demo dataset ships an example overrides file exercising every block, and
+  `make demo-overrides` renders it. A test keeps it applying cleanly, since an
+  example that has silently stopped matching is worse than none.
+
+- The Internet node now shows the upstream provider's brand mark, matched on the
+  ASN the controller already reports beside the ISP name. Providers Ubiquiti have
+  no mark for, and any map rendered with `--obfuscate`, get a plain cloud
+  instead of a bare polygon.
 
 ### Changed
 
@@ -55,6 +76,10 @@ Refactors, docs and tests alone do not need a release at all.
   keeps them and the Python dependencies moving, and a non-gating `pip-audit`
   job reports advisories. Dependabot's own pull requests merge themselves once
   the required checks pass, except major version bumps, which stay manual.
+
+- `--obfuscate` also drops the ASN. It identifies the provider as squarely as
+  the name does, and would otherwise redraw their logo on a map whose purpose is
+  being safe to publish.
 
 ### Fixed
 
@@ -93,36 +118,9 @@ Refactors, docs and tests alone do not need a release at all.
   path could have redirected the tool and collected a working admin key.
   Redirects themselves still work, including on a reverse proxy.
 
-### Added
-
-- The Internet node now shows the upstream provider's brand mark, matched on the
-  ASN the controller already reports beside the ISP name. Providers Ubiquiti have
-  no mark for, and any map rendered with `--obfuscate`, get a plain cloud
-  instead of a bare polygon.
-
-### Changed
-
-- `--obfuscate` also drops the ASN. It identifies the provider as squarely as
-  the name does, and would otherwise redraw their logo on a map whose purpose is
-  being safe to publish.
-
 ## 0.2.0 - 2026-07-30
 
 ### Added
-
-- `[[device]]` in an overrides file declares something no source reports: an
-  unmanaged switch, a non-UniFi access point, or gear that was powered off when
-  you ran the fetch. Optionally with an address, a model, your own artwork, and
-  a parent and port. Declared devices can be referenced by other overrides and
-  by each other.
-
-  They are drawn as claims rather than observations, with a dotted outline and
-  a dotted link, so a reader can tell which parts of a diagram the controller
-  reported and which parts somebody typed in.
-
-- The demo dataset ships an example overrides file exercising every block, and
-  `make demo-overrides` renders it. A test keeps it applying cleanly, since an
-  example that has silently stopped matching is worse than none.
 
 - `--support-file` reads the topology from a UniFi support file archive instead
   of a controller. It needs no credentials and no network access, which makes it
