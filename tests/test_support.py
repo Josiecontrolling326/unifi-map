@@ -300,6 +300,38 @@ class TestClients:
         clients = load_support_file(support_archive).get("client_active")
         assert all(c["ip"] != "10.0.0.99" for c in clients)
 
+    def test_a_client_with_no_address_anywhere_is_still_on_the_map(self, tmp_path):
+        """Losing an address must never mean losing the device.
+
+        Addresses come from the lease file, then the neighbour table, then DPI.
+        Clients come from somewhere else entirely: the topology graph's CLIENT
+        vertices. So a statically addressed device that has also aged out of ARP
+        keeps its node, its parent and its port, and loses only the line of
+        label that would have carried an address.
+
+        Worth pinning down because the natural refactor, building clients from
+        whichever source has addresses, would silently drop exactly the devices
+        most likely to be infrastructure: printers, NASes, anything given a
+        static address precisely because it matters.
+        """
+        members = _default_members()
+        # Strip every address source. The clients themselves are untouched.
+        members["system/run/dnsmasq.lease"] = b""
+        members["system/network/ip-neigh"] = b""
+        path = tmp_path / "no-addresses.tgz"
+        _write_archive(path, members)
+
+        topo = build_topology(load_support_file(path))
+        for mac in (WIRED_CLIENT, WIFI_CLIENT, STATIC_CLIENT, NESTED_CLIENT):
+            assert mac in topo.nodes, f"{mac} vanished with its address"
+            assert topo.nodes[mac].ip is None
+
+        # Placement is unaffected: still parented, still labelled with the port.
+        parents = {e.src: e.dst for e in topo.edges}
+        assert parents[STATIC_CLIENT] == SWITCH
+        assert parents[NESTED_CLIENT] == WIRED_CLIENT
+        assert {e.src: e.label for e in topo.edges}[STATIC_CLIENT] == "port 8"
+
     def test_a_guest_network_marks_its_clients(self, support_archive):
         clients = {c["mac"]: c for c in load_support_file(support_archive).get("client_active")}
         assert clients[WIFI_CLIENT]["is_guest"] is True

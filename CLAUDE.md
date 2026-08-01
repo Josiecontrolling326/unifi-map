@@ -616,6 +616,22 @@ Do not use `git push -u` on `validate`. It repoints the branch's upstream, and a
 later bare `git push` then sends work meant for review straight past it. Name
 the remote explicitly every time.
 
+## Clients come from the topology graph, never from addresses
+
+`_client_active()` builds clients from the topology graph's CLIENT vertices.
+Addresses are then attached from the lease file, the neighbour table and DPI, in
+that order of trust. **Keep that direction.** Building clients from whichever
+source happens to have addresses looks like a simplification and silently drops
+exactly the devices most likely to matter: anything with a static address that
+has aged out of ARP, which in practice means printers, NASes and infrastructure
+given a fixed address precisely because it is important.
+
+A client with no address anywhere still gets a node, a parent and a port label,
+and loses only one line of its label. Covered by
+`test_a_client_with_no_address_anywhere_is_still_on_the_map`.
+
+Live fetches are unaffected either way: `stat/sta` reports addresses directly.
+
 ## Support files are attacker-supplied, and the parsing assumes it
 
 - **Member paths are anchored, not suffix-matched.** `_MEMBER_PATTERNS` requires
