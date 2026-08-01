@@ -56,9 +56,12 @@ busy network this is usually the one worth handing to somebody else. Run
   switch skeleton so they read as slices of one map.
 - **Hides decommissioned hardware** by default, which the console itself offers
   no way to do.
-- **[Manual overrides](#manual-overrides)** for links the controller cannot
-  see, devices running inside other devices, renames, hidden nodes and your own
-  artwork.
+- **[Manual overrides](#manual-overrides), which the console has no equivalent
+  of.** Declare a device nothing reports, such as an unmanaged switch; assert a
+  link the controller is not in the path of; say that a VM lives on a
+  particular host; correct a wrong fingerprint; hide something. All of it drawn
+  as a claim rather than an observation, so a reader can tell the difference.
+  `make demo-overrides` renders the shipped example.
 - **Read-only, always.** `session.get` is the only HTTP verb in the source.
 
 Quickest look, no credentials and no controller:
@@ -244,7 +247,12 @@ gaps close, and coverage is usually near total.
 The dataset deliberately includes an offline device, four VLANs, and a client the
 controller cannot place, so those behaviours are visible too.
 
-Regenerate it with `make demo-snapshot` (see `scripts/make_demo_snapshot.py`).
+An example overrides file ships alongside it at `examples/demo/overrides.toml`,
+exercising every block against that data. `make demo-overrides` renders it, and
+comparing the two outputs shows what each override actually changes.
+
+Regenerate the dataset with `make demo-snapshot` (see
+`scripts/make_demo_snapshot.py`).
 
 ## Mapping from a support file
 

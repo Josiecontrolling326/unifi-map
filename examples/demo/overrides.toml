@@ -1,0 +1,78 @@
+# Example overrides for the shipped demo dataset.
+#
+#   unifi-map --cache-dir examples/demo render --overrides examples/demo/overrides.toml
+#
+# or just `make demo-overrides`.
+#
+# Every block below fixes something visible in the demo map without them, so you
+# can render it twice and compare. Nothing here is inferred: the tool refuses to
+# guess any of it, which is exactly why the file exists.
+
+
+# 1. A device nothing reports.
+#
+# An unmanaged switch has no management plane, so no controller can know it is
+# there. Declared devices are drawn with a dotted outline, because a diagram
+# should never present something you typed in as though it had been observed.
+[[device]]
+name = "Bench switch"
+kind = "switch"
+ip = "10.0.0.9"
+model = "8-port unmanaged"
+parent = "Rack Switch"
+port = 6
+note = "Under the workbench, bought years ago, no management at all."
+
+
+# 2. A link the controller is not in the path of.
+#
+# Render without this file and `reverse-proxy` hangs off "Uplink not reported by
+# controller". It is really on a direct cable to the rack switch, which the
+# controller cannot see because it is not in the path. Asserted links are drawn
+# dotted for the same reason declared devices are.
+[[link]]
+from = "reverse-proxy"
+to = "Rack Switch"
+port = 12
+speed = "10G"
+note = "Direct SFP+ DAC."
+
+
+# 3. Something running inside something else.
+#
+# The controller sees a VM as an ordinary client with its own address and no hint
+# that it lives on a particular host. Nesting says so.
+[[hosted]]
+guest = "build-runner"
+host = "hypervisor"
+note = "CI runner VM."
+
+
+# 4. A wrong name, and your own artwork for it.
+#
+# Ubiquiti's fingerprint database is confident and sometimes wrong, which gives
+# both a useless name and the wrong picture. `match` accepts a MAC, an address or
+# the label as drawn.
+[[node]]
+match = "Intel Corporate 001103"
+name = "Label printer"
+note = "Fingerprint only identified the network card."
+
+# `icon` points at a file you supply and nothing is ever fetched for it.
+# Left commented out so the demo needs no image to run.
+# [[node]]
+# match = "thermostat"
+# icon = "artwork/thermostat.png"
+
+
+# 5. Something you would rather not draw at all.
+#
+# A guest's phone is on the network and is nobody's business on a diagram you
+# intend to share. `--obfuscate` would pseudonymise it; this removes it.
+#
+# Hiding is leaf-only. A node with children is refused rather than silently
+# orphaning them, which you can prove by pointing this at an access point.
+[[node]]
+match = "guest-phone"
+hide = true
+note = "Somebody else's device, not part of the network I am documenting."

@@ -120,6 +120,10 @@ Refactors, docs and tests alone do not need a release at all.
   a dotted link, so a reader can tell which parts of a diagram the controller
   reported and which parts somebody typed in.
 
+- The demo dataset ships an example overrides file exercising every block, and
+  `make demo-overrides` renders it. A test keeps it applying cleanly, since an
+  example that has silently stopped matching is worse than none.
+
 - `--support-file` reads the topology from a UniFi support file archive instead
   of a controller. It needs no credentials and no network access, which makes it
   a safe way to share a real topology when reporting a bug. Add `--support-site`

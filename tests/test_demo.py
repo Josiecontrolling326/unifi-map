@@ -79,3 +79,43 @@ def test_demo_renders_without_network_access(demo_topology):
     dot_source = render_dot(demo_topology, "Demo network", style)
     assert "digraph unifi {" in dot_source
     assert "Core Switch" in dot_source
+
+
+class TestShippedOverridesExample:
+    """`examples/demo/overrides.toml` has to keep working against the demo data.
+
+    An example that no longer applies is worse than no example: it is the first
+    thing someone copies, and a selector that silently stops matching would
+    teach them the wrong shape. The loader raises on an unmatched selector, so
+    simply applying the file is most of the test.
+    """
+
+    @pytest.fixture
+    def applied(self):
+        from unifi_map.client import Snapshot
+        from unifi_map.model import build_topology
+        from unifi_map.overrides import apply, load
+
+        path = Path(__file__).resolve().parents[1] / "examples" / "demo" / "overrides.toml"
+        topo = build_topology(Snapshot.read(path.parent))
+        return apply(topo, load(path))
+
+    def test_every_block_still_does_something(self, applied):
+        # If any of these drops to zero the example has stopped demonstrating
+        # the feature it claims to.
+        assert applied.devices_added == 1
+        assert applied.links_added == 1
+        assert applied.hosted_applied == 1
+        assert applied.renamed == 1
+        assert applied.hidden
+
+    def test_the_declared_device_is_marked_as_a_claim(self, applied):
+        declared = [n for n in applied.topology.nodes.values() if n.asserted]
+        assert len(declared) == 1
+        assert declared[0].label == "Bench switch"
+
+    def test_it_rescues_the_client_the_controller_could_not_place(self, applied):
+        # The demo ships one deliberately unplaceable client. The example's
+        # [[link]] block exists to show that being fixed, so if the placeholder
+        # survives, the example is no longer demonstrating anything.
+        assert UNKNOWN_UPLINK_ID not in {e.dst for e in applied.topology.edges}

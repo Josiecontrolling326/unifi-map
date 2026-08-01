@@ -14,6 +14,7 @@ help:
 	@echo "make sane     render in the readable (non-UniFi) layout"
 	@echo "make offline  render with builtin icons, no network access"
 	@echo "make demo     render the shipped demo dataset (no controller needed)"
+	@echo "make demo-overrides  the same dataset with the example overrides applied"
 	@echo "make dark     render from cache in the dark theme"
 	@echo "make clean    remove out/ and caches"
 
@@ -57,6 +58,11 @@ dark: $(VENV)
 demo: $(VENV)
 	$(VENV)/bin/unifi-map --cache-dir examples/demo --out-dir out/demo \
 		render --per-network -f svg pdf drawio --name demo --title "Demo network"
+
+demo-overrides: $(VENV)
+	$(VENV)/bin/unifi-map --cache-dir examples/demo --out-dir out/demo \
+		render --overrides examples/demo/overrides.toml -f svg --name demo-overrides \
+		--title "Demo network, with overrides"
 
 demo-snapshot:
 	python3 scripts/make_demo_snapshot.py
