@@ -216,11 +216,21 @@ def render_dot(
         icon = icons.get(node_id) if style.icons == "unifi" else None
         if icon is not None:
             attrs = [f"label={_icon_label(topo, node_id, theme, accent, icon)}"]
+            if node.asserted:
+                # Artwork alone would read as something the controller reported,
+                # so an asserted device gets a dotted outline around it. Dotted
+                # matches the asserted edge style; offline uses dashed, so the
+                # two stay distinguishable and both survive greyscale.
+                attrs += ["shape=box", "style=dotted", f'color="{accent}"', "penwidth=1"]
         else:
             attrs = [
                 f'label="{_plain_label(topo, node_id)}"',
                 f"shape={KIND_SHAPE[node.kind]}",
-                'style="filled,rounded,dashed"' if node.offline else 'style="filled,rounded"',
+                'style="filled,rounded,dotted"'
+                if node.asserted
+                else 'style="filled,rounded,dashed"'
+                if node.offline
+                else 'style="filled,rounded"',
                 f'fillcolor="{theme.card_muted if node.offline else theme.card}"',
                 f'color="{accent}"',
                 f'fontcolor="{theme.text}"',
@@ -340,7 +350,7 @@ def _legend(
         f'FACE="{FONT}"><BR/><B>Links</B></FONT></TD></TR>'
     )
     link_styles = [("&#9472;&#9472;", "Wired"), ("- - -", "Wireless")]
-    if any(e.asserted for e in topo.edges):
+    if any(e.asserted for e in topo.edges) or any(n.asserted for n in topo.nodes.values()):
         link_styles.append((". . .", "Stated in overrides"))
     for glyph, label in link_styles:
         rows.append(

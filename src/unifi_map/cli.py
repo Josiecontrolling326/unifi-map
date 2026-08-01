@@ -516,8 +516,9 @@ def cmd_render(args: argparse.Namespace) -> int:
         # or CI log it was produced in still carried real labels.
         hidden = f" ({', '.join(result.hidden)})" if result.hidden and not args.obfuscate else ""
         log.info(
-            "Overrides from %s: %d link(s), %d nested, %d renamed, %d hidden%s",
+            "Overrides from %s: %d device(s) added, %d link(s), %d nested, %d renamed, %d hidden%s",
             path,
+            result.devices_added,
             result.links_added,
             result.hosted_applied,
             result.renamed,

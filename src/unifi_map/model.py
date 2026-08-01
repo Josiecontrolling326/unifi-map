@@ -72,6 +72,10 @@ class Node:
     # Internet node only. The upstream provider's autonomous system number,
     # which is the join key to Ubiquiti's ISP brand marks.
     asn: int | None = None
+    # Stated in an overrides file rather than reported by anything. Drawn
+    # differently for the same reason `Edge.asserted` is: the map must never
+    # present a claim and an observation as though they were the same thing.
+    asserted: bool = False
 
     @property
     def glyph_name(self) -> str | None:

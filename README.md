@@ -677,10 +677,23 @@ own.
 
 ## Manual overrides
 
-Three things a controller cannot tell you, which you can state in an
+Things a controller cannot tell you, which you can state in an
 `overrides.toml` (picked up automatically when it exists, or pass `--overrides`):
 
 ```toml
+# A device nothing reports: an unmanaged switch, a non-UniFi access point, or
+# something that was powered off when you ran the fetch. `parent` and `port`
+# are optional; without them it floats.
+[[device]]
+name = "Basement dumb switch"
+kind = "switch"            # gateway, switch, ap, bridge, wired_client,
+                           # wireless_client or unknown
+ip = "10.0.0.9"            # optional
+model = "NETGEAR GS308"    # optional, shown under the name
+parent = "Core Switch"     # optional, any selector: MAC, IP or name
+port = 24                  # optional, needs a parent
+icon = "netgear.png"       # optional, your own artwork
+
 # A link the controller is not in the path of.
 [[link]]
 from = "nas"
@@ -701,6 +714,9 @@ note = "VM"
 match = "10.0.30.22"
 name = "Network Bidet"
 icon = "assets/bidet.png"
+
+# Devices you declared can be referenced anywhere a selector is accepted,
+# including by other declared devices, so a chain works.
 
 # Something you would rather not draw at all.
 [[node]]
@@ -728,6 +744,13 @@ edge matches Ubiquiti's own artwork best.
 
 See [`docs/overrides.md`](docs/overrides.md) for the full format and more
 guidance on choosing images.
+
+**Anything you state is drawn as a claim, not as an observation.** Declared
+devices get a dotted outline and asserted links a dotted line, and the legend
+gains a "Stated in overrides" entry. Offline gear uses dashes rather than dots,
+so the two stay distinguishable, and neither relies on colour. The point is that
+a reader of your diagram can tell which parts the controller reported and which
+parts you typed in.
 
 ## Also planned
 

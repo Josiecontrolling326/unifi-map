@@ -237,6 +237,16 @@ Implemented end to end: schema, loader, `resolve()` and `apply()`. Notes:
   honest answer to what should happen to them.
 - Asserted edges carry `Edge.asserted` and render dotted in both backends. Keep
   them visually distinct from observed links.
+- **`[[device]]` declares a node nothing reports**, for an unmanaged switch or
+  gear that was off during the fetch. Those carry `Node.asserted` and render
+  with a dotted outline, for the same reason edges do: the map must never
+  present something typed in as though a controller had reported it. Offline
+  uses dashes and asserted uses dots, so the two remain distinguishable without
+  relying on colour.
+- Declared devices are added **before** every other override is applied, so a
+  link, a nesting or a rename can reference one, and one declared device can
+  hang off another. Their ids are prefixed `asserted-`, which is what keeps a
+  device named after a MAC from shadowing a real node.
 - User artwork is loaded through `assets.local_icon()`, which raises rather than
   falling back, and override icons are merged over looked-up ones in the CLI.
 

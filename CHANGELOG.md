@@ -110,6 +110,16 @@ Refactors, docs and tests alone do not need a release at all.
 
 ### Added
 
+- `[[device]]` in an overrides file declares something no source reports: an
+  unmanaged switch, a non-UniFi access point, or gear that was powered off when
+  you ran the fetch. Optionally with an address, a model, your own artwork, and
+  a parent and port. Declared devices can be referenced by other overrides and
+  by each other.
+
+  They are drawn as claims rather than observations, with a dotted outline and
+  a dotted link, so a reader can tell which parts of a diagram the controller
+  reported and which parts somebody typed in.
+
 - `--support-file` reads the topology from a UniFi support file archive instead
   of a controller. It needs no credentials and no network access, which makes it
   a safe way to share a real topology when reporting a bug. Add `--support-site`

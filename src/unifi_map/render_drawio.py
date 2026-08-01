@@ -73,7 +73,10 @@ def _node_style(node, theme: Theme, accent: str, icon: IconAsset | None) -> str:
         )
     else:
         parts.insert(0, _SHAPE_STYLE[node.kind])
-    if node.offline:
+    if node.asserted:
+        # Stated by the user, not reported. Dotted, matching asserted edges.
+        parts.append("dashed=1;dashPattern=1 3;")
+    elif node.offline:
         parts.append("dashed=1;")
     return "".join(parts)
 

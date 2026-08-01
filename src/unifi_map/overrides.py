@@ -36,7 +36,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .assets import IconAsset, local_icon
-from .model import UNKNOWN_UPLINK_ID, Edge, Topology
+from .model import UNKNOWN_UPLINK_ID, Edge, Kind, Node, Topology
 
 
 class OverrideError(ValueError):
@@ -64,6 +64,41 @@ class Link:
         """What to print on the edge."""
         parts = [p for p in (f"port {self.port}" if self.port else None, self.speed) if p]
         return " · ".join(parts) or None
+
+
+@dataclass(frozen=True)
+class Device:
+    """A device the user knows about and no source reports.
+
+    An unmanaged switch, a non-UniFi access point, something powered off at the
+    time of the fetch, or gear on a segment the controller cannot see. The
+    controller has no way to know these exist, and this tool will not guess, so
+    the user states them.
+
+    The resulting node is marked `asserted` and drawn differently. That is the
+    point rather than a detail: a map that presented a device somebody typed in
+    identically to one the controller reported would be quietly lying about
+    where its information came from.
+    """
+
+    name: str
+    kind: str = "unknown"
+    ip: str | None = None
+    model: str | None = None
+    parent: str | None = None
+    port: str | None = None
+    icon: Path | None = None
+    note: str | None = None
+
+    @property
+    def node_id(self) -> str:
+        """A stable id that cannot collide with a MAC address.
+
+        Derived from the name so re-running is deterministic, and prefixed so it
+        is obvious in DOT output and draw.io ids where a node came from.
+        """
+        slug = "".join(c if c.isalnum() else "-" for c in self.name.lower()).strip("-")
+        return f"asserted-{slug or 'device'}"
 
 
 @dataclass(frozen=True)
@@ -96,12 +131,13 @@ class NodeOverride:
 
 @dataclass
 class Overrides:
+    devices: list[Device] = field(default_factory=list)
     links: list[Link] = field(default_factory=list)
     hosted: list[Hosted] = field(default_factory=list)
     nodes: list[NodeOverride] = field(default_factory=list)
 
     def __bool__(self) -> bool:
-        return bool(self.links or self.hosted or self.nodes)
+        return bool(self.devices or self.links or self.hosted or self.nodes)
 
 
 def _require_str(table: dict, key: str, context: str) -> str:
@@ -123,6 +159,17 @@ def _optional_str(table: dict, key: str) -> str | None:
     return value.strip() or None
 
 
+def _icon_path(table: dict, base_dir: Path | None) -> Path | None:
+    """Resolve an `icon` key relative to the overrides file, not the cwd."""
+    raw = _optional_str(table, "icon")
+    if not raw:
+        return None
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute() and base_dir is not None:
+        candidate = base_dir / candidate
+    return candidate
+
+
 def parse(payload: dict, base_dir: Path | None = None) -> Overrides:
     """Build :class:`Overrides` from an already-decoded TOML mapping.
 
@@ -131,6 +178,38 @@ def parse(payload: dict, base_dir: Path | None = None) -> Overrides:
     around together.
     """
     result = Overrides()
+
+    seen_names: set[str] = set()
+    for index, raw in enumerate(payload.get("device") or [], start=1):
+        if not isinstance(raw, dict):
+            raise OverrideError(f"[[device]] #{index} must be a table")
+        context = f"[[device]] #{index}"
+        name = _require_str(raw, "name", context)
+        if name.lower() in seen_names:
+            raise OverrideError(f"{context}: a device named {name!r} is already declared")
+        seen_names.add(name.lower())
+
+        kind = (_optional_str(raw, "kind") or "unknown").lower()
+        valid = sorted(k.value for k in Kind if k is not Kind.INTERNET)
+        if kind not in valid:
+            raise OverrideError(
+                f"{context}: 'kind' must be one of {', '.join(valid)}, got {kind!r}"
+            )
+        if raw.get("port") is not None and not _optional_str(raw, "parent"):
+            raise OverrideError(f"{context}: 'port' means nothing without 'parent'")
+
+        result.devices.append(
+            Device(
+                name=name,
+                kind=kind,
+                ip=_optional_str(raw, "ip"),
+                model=_optional_str(raw, "model"),
+                parent=_optional_str(raw, "parent"),
+                port=_optional_str(raw, "port"),
+                icon=_icon_path(raw, base_dir),
+                note=_optional_str(raw, "note"),
+            )
+        )
 
     for index, raw in enumerate(payload.get("link") or [], start=1):
         if not isinstance(raw, dict):
@@ -163,15 +242,7 @@ def parse(payload: dict, base_dir: Path | None = None) -> Overrides:
         if not isinstance(raw, dict):
             raise OverrideError(f"[[node]] #{index} must be a table")
         context = f"[[node]] #{index}"
-        icon_raw = _optional_str(raw, "icon")
-        icon: Path | None = None
-        if icon_raw:
-            candidate = Path(icon_raw).expanduser()
-            # Relative to the overrides file, not the working directory, so the
-            # same config works regardless of where the tool is run from.
-            if not candidate.is_absolute() and base_dir is not None:
-                candidate = base_dir / candidate
-            icon = candidate
+        icon = _icon_path(raw, base_dir)
         name = _optional_str(raw, "name")
         note = _optional_str(raw, "note")
         hide = bool(raw.get("hide", False))
@@ -211,10 +282,17 @@ class ApplyResult:
     hidden: list[str] = field(default_factory=list)
     links_added: int = 0
     hosted_applied: int = 0
+    devices_added: int = 0
 
     @property
     def changed(self) -> bool:
-        return bool(self.renamed or self.hidden or self.links_added or self.hosted_applied)
+        return bool(
+            self.renamed
+            or self.hidden
+            or self.links_added
+            or self.hosted_applied
+            or self.devices_added
+        )
 
 
 def resolve(selector: str, topo: Topology) -> str:
@@ -272,8 +350,9 @@ def _prune_placeholder(topo: Topology) -> None:
 def apply(topo: Topology, overrides: Overrides) -> ApplyResult:
     """Apply *overrides* to a copy of *topo*.
 
-    Order matters. Links and nesting are applied before hiding, so that hiding a
-    node correctly sees the children an override just gave it.
+    Order matters, in both directions. Declared devices are added first, so a
+    link, a nesting or a rename can refer to one. Hiding comes last, so it sees
+    the children an override just gave a node.
     """
     working = Topology(
         nodes=dict(topo.nodes),
@@ -281,6 +360,38 @@ def apply(topo: Topology, overrides: Overrides) -> ApplyResult:
         networks=dict(topo.networks),
     )
     result = ApplyResult(topology=working)
+
+    for device in overrides.devices:
+        if device.node_id in working.nodes:
+            raise OverrideError(
+                f"[[device]] {device.name!r} would collide with an existing node id"
+            )
+        working.add(
+            Node(
+                id=device.node_id,
+                label=device.name,
+                kind=Kind(device.kind),
+                ip=device.ip,
+                model=device.model,
+                detail=device.model,
+                asserted=True,
+            )
+        )
+        result.devices_added += 1
+        if device.icon is not None:
+            result.icons[device.node_id] = local_icon(device.icon)
+        if device.parent:
+            # Resolved after every declared device exists, so one asserted
+            # device can hang off another.
+            parent_id = resolve(device.parent, working)
+            working.edges.append(
+                Edge(
+                    src=device.node_id,
+                    dst=parent_id,
+                    label=f"port {device.port}" if device.port else None,
+                    asserted=True,
+                )
+            )
 
     for link in overrides.links:
         source = resolve(link.source, working)
